@@ -15,10 +15,14 @@ cd "$(dirname "$0")/.."
 APP_NAME="${APP_NAME:-TinRoof Transcode}"
 BUNDLE_ID="${BUNDLE_ID:-com.tinroof.transcode}"
 VERSION="${VERSION:-0.1.0}"
-OUT="build/${APP_NAME}.app"
+OUT="${OUT:-build/${APP_NAME}.app}"
+MIN_MACOS="${MIN_MACOS:-14.0}"
 
-swift build -c release --product TinRoofTranscode
-BIN="$(swift build -c release --show-bin-path)/TinRoofTranscode"
+# build_release.sh builds the binary itself and passes it in BIN.
+if [ -z "$SKIP_SWIFT_BUILD" ]; then
+  swift build -c release --product TinRoofTranscode
+  BIN="$(swift build -c release --show-bin-path)/TinRoofTranscode"
+fi
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
@@ -48,7 +52,7 @@ cat > "$OUT/Contents/Info.plist" <<EOF
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>${MIN_MACOS}</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>CFBundleDocumentTypes</key>
@@ -65,5 +69,5 @@ $(doc_type "Picture" Viewer jpeg jpg tiff tif png)
 </plist>
 EOF
 
-codesign --force --deep --sign - "$OUT" >/dev/null 2>&1 || echo "warning: ad-hoc signing failed"
+[ -n "$SKIP_SWIFT_BUILD" ] || codesign --force --deep --sign - "$OUT" >/dev/null 2>&1 || echo "warning: ad-hoc signing failed"
 echo "Built $OUT"

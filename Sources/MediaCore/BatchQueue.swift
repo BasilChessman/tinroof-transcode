@@ -148,7 +148,10 @@ public final class BatchQueue: ObservableObject {
         let proc = FFmpegProcess(plan: plan, executable: ffmpeg)
         task.process = proc
         proc.onProgress = { [weak task] p in DispatchQueue.main.async { if task?.status.isRunning == true { task?.status = .running(p) } } }
+        let isCheckStream: Bool = { if case .checkStream = task.spec.kind { return true }; return false }()
         proc.onLog = { [weak self, weak task] line in
+            // Check Stream decodes to a null output; that output's own notes are not stream damage.
+            if isCheckStream && line.hasPrefix("[null @") { return }
             DispatchQueue.main.async {
                 task?.log.append(line)
                 self?.onLog?(line)

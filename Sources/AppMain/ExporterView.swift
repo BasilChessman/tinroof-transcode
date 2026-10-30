@@ -324,20 +324,24 @@ struct ExporterView: View {
                 if let fs = model.settings.frameSize, !model.frameSizeOptions.contains(fs) { Text("\(fs.label) (custom)").tag(FrameSize?.some(fs)) }
             }
             if kind != .dv && kind != .mpeg2 {
-                HStack {
-                    Text("Custom")
-                    TextField("W", text: $model.customWidth).frame(width: 60)
-                    Text("×")
-                    TextField("H", text: $model.customHeight).frame(width: 60)
-                    Button("Set") { model.applyCustomSize() }
+                LabeledContent("Custom size") {
+                    HStack {
+                        TextField("", text: $model.customWidth, prompt: Text("width")).labelsHidden().frame(width: 64)
+                        Text("×")
+                        TextField("", text: $model.customHeight, prompt: Text("height")).labelsHidden().frame(width: 64)
+                        Button("Set") { model.applyCustomSize() }
+                    }
                 }
             }
             if kind != .frame && kind != .dv && kind != .mpeg2 {
-                HStack {
-                    Text("Frame rate")
-                    TextField("same as source", value: s.frameRate, format: .number).frame(width: 110)
-                    Toggle("Frame blending", isOn: s.frameBlending)
+                LabeledContent("Frame rate") {
+                    HStack {
+                        TextField("", value: s.frameRate, format: .number, prompt: Text("same as source"))
+                            .labelsHidden().frame(width: 120)
+                        Text("fps")
+                    }
                 }
+                Toggle("Frame blending", isOn: s.frameBlending)
             }
             if kind != .frame {
                 Picker("Field dominance", selection: s.fieldDominance) { ForEach(FieldDominance.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
@@ -351,14 +355,21 @@ struct ExporterView: View {
             }
             Picker("Rotation", selection: s.rotation) { ForEach(Rotation.allCases, id: \.self) { Text($0.label).tag($0) } }
             Toggle("Flip horizontally", isOn: s.flipHorizontal)
-            HStack {
-                Text("Zoom")
-                TextField("%", value: s.zoomPercent, format: .number).frame(width: 60)
-                Text("% X/Y")
-                TextField("X/Y", value: s.zoomAspect, format: .number).frame(width: 60)
-                Text("Center")
-                TextField("X", value: s.centerX, format: .number).frame(width: 45)
-                TextField("Y", value: s.centerY, format: .number).frame(width: 45)
+            LabeledContent("Zoom") {
+                HStack {
+                    TextField("", value: s.zoomPercent, format: .number).labelsHidden().frame(width: 60)
+                    Text("%   X/Y stretch")
+                    TextField("", value: s.zoomAspect, format: .number).labelsHidden().frame(width: 60)
+                }
+            }
+            LabeledContent("Center offset") {
+                HStack {
+                    Text("X")
+                    TextField("", value: s.centerX, format: .number).labelsHidden().frame(width: 50)
+                    Text("Y")
+                    TextField("", value: s.centerY, format: .number).labelsHidden().frame(width: 50)
+                    Text("pixels")
+                }
             }
             Toggle("Cropping", isOn: s.crop.enabled)
             if model.settings.crop.enabled {

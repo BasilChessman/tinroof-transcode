@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if FFmpegLocator.find() == nil {
             log(MediaError.ffmpegMissing.localizedDescription)
         }
+        if let dir = ScreenshotMode.directory { ScreenshotMode.run(in: dir); return }
         if !pendingOpen.isEmpty { open(pendingOpen); pendingOpen = [] }
         else if players.isEmpty { openFiles(nil) }
     }
@@ -136,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     let doc = PlayerDocument(source: src)
                     let pc = PlayerWindowController(doc: doc)
                     self.players.append(pc)
+                    self.activePlayer = pc
+                    self.objectWillChangeForPanels()
                     pc.showWindow(nil)
                     for l in locations where l.isFileURL { NSDocumentController.shared.noteNewRecentDocumentURL(l) }
                     self.log("Opened \(src.displayName): \(src.info.formatLongName), \(Timecode.format(src.info.duration))")
@@ -191,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         (NSApp.keyWindow?.windowController as? PlayerWindowController)
             ?? (NSApp.mainWindow?.windowController as? PlayerWindowController)
             ?? activePlayer
+            ?? players.last
     }
 
     func activePlayerChanged() {
@@ -292,12 +296,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         showExporter(kind: kind, player: p)
     }
 
-    func showExporter(kind: ExporterKind, player: PlayerWindowController) {
+    @discardableResult
+    func showExporter(kind: ExporterKind, player: PlayerWindowController) -> ExporterModel? {
         if kind != .audio && player.doc.videoStream == nil {
-            let a = NSAlert(); a.messageText = "This stream has no video track."; a.runModal(); return
+            let a = NSAlert(); a.messageText = "This stream has no video track."; a.runModal(); return nil
         }
         if kind == .audio && player.doc.audioInfo == nil {
-            let a = NSAlert(); a.messageText = "This stream has no audio track."; a.runModal(); return
+            let a = NSAlert(); a.messageText = "This stream has no audio track."; a.runModal(); return nil
         }
         let model = ExporterModel(kind: kind, player: player, presets: presets)
         let view = ExporterView(model: model)
@@ -313,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         exporters.append(wc)
         w.center()
         wc.showWindow(nil)
+        return model
     }
 
     @objc func checkStream(_ sender: Any?) {

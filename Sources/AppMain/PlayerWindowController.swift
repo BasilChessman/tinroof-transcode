@@ -6,6 +6,10 @@ import MediaCore
 /// Content view that receives the player's keyboard shortcuts.
 final class PlayerContentView: NSView {
     weak var controller: PlayerWindowController?
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
     override var acceptsFirstResponder: Bool { true }
     override func keyDown(with event: NSEvent) {
         if controller?.handleKey(event) != true { super.keyDown(with: event) }
@@ -30,6 +34,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private var selectionAnchor: Double?
     private var lastImageSize: CGSize = .zero
     private var shuttleRate = 0.0
+    /// Last displayed frame and the view showing it (used by screenshot mode).
+    private(set) var currentFrameImage: CGImage?
+    var videoArea: NSView? { videoView }
 
     init(doc: PlayerDocument) {
         self.doc = doc
@@ -126,6 +133,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         engine.onFrame = { [weak self] image, time in
             guard let self else { return }
             self.videoView.show(image)
+            self.currentFrameImage = image
             self.lastImageSize = CGSize(width: image.width, height: image.height)
             if !self.engine.isPlaying { self.doc.position = time }
         }

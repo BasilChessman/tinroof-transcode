@@ -27,8 +27,8 @@ public enum CommandBuilder {
             if settings.kind == .frame { return try exportFrame(settings, req, output: job.output) }
             return try export(settings, req, output: job.output, tmp: temporaryDirectory)
         case .checkStream:
+            // Error level only: warnings (timing estimates, null-muxer DTS notes) are not stream damage.
             var args = commonPrefix
-            args[args.firstIndex(of: "error")!] = "warning"
             let src = req.primary!
             args += ["-fflags", "+genpts", "-i", src.inputSpec]
             if let v = req.videoStream { args += ["-map", "0:\(v)"] }

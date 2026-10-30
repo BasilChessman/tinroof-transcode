@@ -4,3 +4,5 @@ vendor/
 TestMedia/
 vendor_build.log
 .swiftpm/
+.build-release/
+release_build.log
