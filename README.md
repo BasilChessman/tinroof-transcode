@@ -69,3 +69,30 @@ Playback decodes with libav directly, so MPEG-2, VOB, TS, AC3 and other formats 
 ## Distribution notes
 
 The debug and `build_app.sh` builds link FFmpeg from Homebrew, so they run on Macs with Homebrew's ffmpeg installed. A self-contained release needs FFmpeg built for the deployment target and its dylibs copied into `Contents/Frameworks` (or static linking), plus Developer ID signing and notarization. Shipping FFmpeg built with `--enable-gpl` (x264/x265) makes the app subject to the GPL; build with LGPL-only components if that matters.
+
+## License
+
+TinRoof Transcode is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License v3.0](LICENSE) as published by the Free Software Foundation.
+
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the license for details.
+
+## Third-party software
+
+Release builds include these open-source libraries, compiled from their official sources by
+`scripts/build_release.sh` (which records the exact versions):
+
+| Component | License | Source |
+| --- | --- | --- |
+| FFmpeg 9.0.2 | GPL v3 (as configured) | https://ffmpeg.org |
+| x264 | GPL v2 or later | https://code.videolan.org/videolan/x264 |
+| x265 4.1 | GPL v2 or later | https://bitbucket.org/multicoreware/x265_git |
+| SVT-AV1 3.1.2 | BSD 3-Clause + AOM patent license | https://gitlab.com/AOMediaCodec/SVT-AV1 |
+| libvpx 1.15.2 | BSD 3-Clause | https://chromium.googlesource.com/webm/libvpx |
+| Opus 1.5.2 | BSD 3-Clause | https://opus-codec.org |
+| LAME 3.100 | LGPL v2 | https://lame.sourceforge.io |
+| Snappy 1.2.2 | BSD 3-Clause | https://github.com/google/snappy |
+
+The complete corresponding source for a release is this repository at the release's tag, plus the
+component sources listed above at the versions pinned in `scripts/build_release.sh`.

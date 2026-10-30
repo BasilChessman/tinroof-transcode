@@ -33,6 +33,7 @@ cp Resources/Guide/*.html Resources/Guide/*.css "$OUT/Contents/Resources/Guide/"
 cp docs/screenshots/*.png "$OUT/Contents/Resources/Guide/images/"
 sips -z 256 256 Resources/AppIcon-1024.png --out "$OUT/Contents/Resources/Guide/images/icon.png" >/dev/null
 cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
+cp LICENSE "$OUT/Contents/Resources/LICENSE.txt"
 if [ -n "$FFMPEG" ]; then
   mkdir -p "$OUT/Contents/Resources/bin"
   cp "$FFMPEG" "$OUT/Contents/Resources/bin/ffmpeg"
@@ -58,6 +59,7 @@ cat > "$OUT/Contents/Info.plist" <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
+  <key>NSHumanReadableCopyright</key><string>Free software under the GNU General Public License v3.0.</string>
   <key>LSMinimumSystemVersion</key><string>${MIN_MACOS}</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>

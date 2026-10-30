@@ -19,6 +19,16 @@
 # Build machine only (not needed by users): Xcode, cmake, nasm, pkg-config, autoconf.
 set -e
 cd "$(dirname "$0")/.."
+
+# Build from a neutral folder so no home-folder paths (and so no user name) end up inside the binaries.
+CLEAN_ROOT="${CLEAN_ROOT:-/tmp/trt-build}"
+mkdir -p "$CLEAN_ROOT"
+if [ "$(pwd -P)" != "$(cd "$CLEAN_ROOT" && pwd -P)" ]; then
+  rsync -a --delete --exclude .git --exclude .build --exclude .build-release --exclude build --exclude vendor --exclude TestMedia ./ "$CLEAN_ROOT/"
+  (cd "$CLEAN_ROOT" && ./scripts/build_release.sh)
+  rm -rf build/release && mkdir -p build && cp -R "$CLEAN_ROOT/build/release" build/
+  exit 0
+fi
 ROOT="$(pwd)"
 
 APP_NAME="${APP_NAME:-TinRoof Transcode}"
@@ -204,6 +214,7 @@ bad=0
 for f in "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/Resources/bin/ffmpeg"; do
   deps="$(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/Library/|/usr/lib/)' || true)"
   if [ -n "$deps" ]; then echo "error: $f links non-system libraries:"; echo "$deps"; bad=1; fi
+  if strings -a "$f" | grep -q "$HOME"; then echo "error: $f contains the home folder path $HOME"; bad=1; fi
   minos="$(otool -l "$f" | awk '/LC_BUILD_VERSION/{f=1} f && /minos/{print $2; exit}')"
   echo "$(basename "$f"): minimum macOS $minos"
 done
@@ -228,6 +239,7 @@ DMG="$OUT_DIR/TinRoof-Transcode-$VERSION.dmg"
 STAGE="$OUT_DIR/dmg"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
+cp LICENSE "$STAGE/LICENSE.txt"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
