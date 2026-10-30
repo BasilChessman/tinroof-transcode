@@ -1,0 +1,6 @@
+.build/
+build/
+vendor/
+TestMedia/
+vendor_build.log
+.swiftpm/
