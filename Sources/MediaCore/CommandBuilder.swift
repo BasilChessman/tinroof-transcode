@@ -569,19 +569,47 @@ public enum CommandBuilder {
         var inputArgs: [String] = []
         var videoPads: [String] = [], audioPads: [String] = []
         var inputIndex = 0
-        for seg in req.segments {
+        // Clips in different formats (appended files) are normalised to the first clip before joining.
+        let mixed = Set(req.segments.map(\.sourceID)).count > 1
+        var preGraph: [String] = []
+        let layout = (audioInfo?.channelLayout.isEmpty == false ? audioInfo!.channelLayout : "stereo")
+        for (si, seg) in req.segments.enumerated() {
             guard let ss = req.source(seg.sourceID) else { continue }
             inputArgs += inputFlags(req) + trimArgs(seg, duration: ss.info.duration) + ["-i", ss.inputSpec]
             let main = inputIndex
             inputIndex += 1
-            if wantsVideo, let v = req.videoStream { videoPads.append("\(main):\(v)") }
+            if wantsVideo {
+                let v = req.videoStream(for: seg.sourceID) ?? ss.info.videoStreams.first?.index ?? 0
+                if mixed, let ref = videoInfo {
+                    let w = ref.width, h = ref.height
+                    let fps = ref.frameRate > 0 ? String(format: "%.5f", ref.frameRate) : ""
+                    preGraph.append("[\(main):\(v)]scale=\(w):\(h):force_original_aspect_ratio=decrease,pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2:black,"
+                        + String(format: "setsar=%.6f", ref.sampleAspect) + (fps.isEmpty ? "" : ",fps=\(fps)") + ",format=yuv420p[nv\(si)]")
+                    videoPads.append("nv\(si)")
+                } else {
+                    videoPads.append("\(main):\(v)")
+                }
+            }
             if wantsAudio {
+                var pad: String?
                 if let companion = ss.companionAudio {
                     inputArgs += trimArgs(seg, duration: ss.info.duration) + ["-i", companion.path]
-                    audioPads.append("\(inputIndex):a:0")
+                    pad = "\(inputIndex):a:0"
                     inputIndex += 1
-                } else if let a = audioIndex {
-                    audioPads.append("\(main):\(a)")
+                } else if let a = req.audioStreams(for: seg.sourceID).first ?? (seg.sourceID == src.id ? audioIndex : nil) {
+                    pad = "\(main):\(a)"
+                }
+                if let pad {
+                    if mixed {
+                        preGraph.append("[\(pad)]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=\(layout)[na\(si)]")
+                        audioPads.append("na\(si)")
+                    } else {
+                        audioPads.append(pad)
+                    }
+                } else {
+                    // A clip without sound: silence of the same length keeps the join aligned.
+                    preGraph.append("anullsrc=channel_layout=\(layout):sample_rate=48000,atrim=0:\(Timecode.ffmpeg(seg.duration))[na\(si)]")
+                    audioPads.append("na\(si)")
                 }
             }
         }
@@ -592,7 +620,7 @@ public enum CommandBuilder {
             inputIndex += 1
         }
 
-        var graph: [String] = []
+        var graph: [String] = preGraph
         var vLabel = videoPads.first, aLabel = audioPads.first
         let n = req.segments.count
         if n > 1 {

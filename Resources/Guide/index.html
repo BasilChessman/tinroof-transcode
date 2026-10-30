@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinRoof Transcode Guide</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+
+<header class="hero">
+  <img src="images/icon.png" alt="">
+  <div>
+    <h1>TinRoof <span class="accent">Transcode</span></h1>
+    <p>Play, edit, join and convert video on your Mac: from DVD and TV recordings to ProRes, HEVC and AV1.</p>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#start">Getting started</a>
+  <a href="#open">Opening</a>
+  <a href="#player">Player</a>
+  <a href="#edit">Editing</a>
+  <a href="#join">Joining clips</a>
+  <a href="#convert">Lossless conversion</a>
+  <a href="#export">Exporting</a>
+  <a href="#batch">Batch</a>
+  <a href="#windows">Info &amp; Settings</a>
+  <a href="#help">Troubleshooting</a>
+</nav>
+
+<main>
+
+<section id="start">
+  <h2>Getting started</h2>
+  <p class="lead">TinRoof Transcode (TRT) opens almost any video file, lets you cut out what you don't need, join clips together, and save the result in the format you want.</p>
+  <div class="cards">
+    <div class="card"><b>Player</b><span>MPEG, VOB, TS, MP4, MOV, MKV, AVI and more, including files QuickTime Player can't open.</span></div>
+    <div class="card"><b>Editor</b><span>Cut, copy, paste, trim and join. Your original files are never changed.</span></div>
+    <div class="card"><b>Lossless converter</b><span>Re-wrap or split video without re-encoding: full quality, at disk speed.</span></div>
+    <div class="card"><b>Exporter</b><span>Re-encode to H.264, HEVC, ProRes, DNxHR, Hap, AV1 and more.</span></div>
+    <div class="card"><b>Batch</b><span>Queue many conversions and let them run on their own.</span></div>
+  </div>
+  <p>When TRT starts, it shows an empty player. <b>Click it</b> to choose a file, drag a video file onto it, or choose <span class="menu">File › Open Files…</span> <kbd>⌘</kbd><kbd>O</kbd>.</p>
+  <figure class="narrow">
+    <img src="images/empty-player.png" alt="The empty player">
+    <figcaption>The empty player: click it to open a video, or drop one anywhere in the window.</figcaption>
+  </figure>
+  <p>Requirements: macOS 14 Sonoma or later on an Apple Silicon Mac. Nothing else needs to be installed.</p>
+</section>
+
+<section id="open">
+  <h2>Opening video</h2>
+  <ul>
+    <li><b>Click the empty player</b> to choose a file, or <b>drag and drop</b> a file onto it or onto the app icon in the Dock.</li>
+    <li><span class="menu">File › Open Files…</span> <kbd>⌘</kbd><kbd>O</kbd> opens each file in its own player window.</li>
+    <li><span class="menu">File › Open DVD…</span> <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> opens a disc or VIDEO_TS folder and asks which title to open. Copy-protected DVDs are not supported.</li>
+    <li><span class="menu">File › Open URL…</span> <kbd>⌘</kbd><kbd>U</kbd> plays or downloads a video from the internet.</li>
+  </ul>
+  <h3>Recordings split into several files</h3>
+  <p>DVDs, camcorders and TV recorders often split one recording into several files. TRT recognises them and offers to open all the parts as one stream:</p>
+  <table>
+    <tr><th>Device</th><th>Example files</th></tr>
+    <tr><td>DVD</td><td>VTS_01_1.VOB, VTS_01_2.VOB, …</td></tr>
+    <tr><td>DreamBox</td><td>Recording.ts, Recording.ts.001, …</td></tr>
+    <tr><td>Humax</td><td>Movie~0.vid, Movie~1.vid, …</td></tr>
+    <tr><td>Homecast</td><td>Channel.tp0, Channel.tp1, …</td></tr>
+  </table>
+  <p>A video-only <code>.m2v</code> file automatically opens with the audio file of the same name (<code>.aiff</code>, <code>.wav</code>, <code>.mp2</code>, <code>.ac3</code>…).</p>
+</section>
+
+<section id="player">
+  <h2>The player</h2>
+  <figure>
+    <img src="images/player.png" alt="The player window">
+    <figcaption>The player with a selection from 4 to 9 seconds, shown in blue on the timeline.</figcaption>
+  </figure>
+  <ul>
+    <li><b>Timeline</b>: the triangle is the playhead; click or drag to move it. The selection shows in blue and red lines mark joins and cuts.</li>
+    <li><b>Video PID / Audio PID</b>: choose the video and audio track when a file has more than one. Tracks are listed by their PID (stream ID); hover over one to see its format.</li>
+    <li><b>Audio Mode</b>: for 5.1 surround audio, choose Stereo Mix, Front Mix, Surround (Pro Logic), or a single channel pair.</li>
+    <li><b>Transport buttons</b>: skip back, play backwards, play/stop, play forwards faster, skip forward, with the current time above them. Hold <kbd>⌥</kbd> for slow motion, one-minute skips, or looping the selection.</li>
+    <li><b>In ⇔ Out</b>: the start and end of the selection, which Save As, Convert and Export use.</li>
+    <li><b>Trimming</b>: the part of the stream shown in the player (see Trim, below).</li>
+    <li><b>Volume</b>: <kbd>⌘</kbd><kbd>↑</kbd> and <kbd>⌘</kbd><kbd>↓</kbd>.</li>
+  </ul>
+  <h3>Keyboard shortcuts</h3>
+  <table>
+    <tr><th>Keys</th><th>Action</th></tr>
+    <tr><td><kbd>Space</kbd></td><td>Play / stop (or double-click the picture)</td></tr>
+    <tr><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Play backwards / stop / play forwards; press again to go faster</td></tr>
+    <tr><td><kbd>⌥</kbd><kbd>J</kbd> <kbd>⌥</kbd><kbd>L</kbd></td><td>Slow motion backwards / forwards</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next frame</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Previous / next keyframe</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>Set In / Out at the playhead</td></tr>
+    <tr><td><kbd>X</kbd></td><td>Clear the selection</td></tr>
+    <tr><td><kbd>⇧</kbd> + any move</td><td>Extend the selection</td></tr>
+    <tr><td><kbd>Page Up</kbd> <kbd>Page Down</kbd></td><td>Skip back / forward (10 s; change in Settings)</td></tr>
+    <tr><td><kbd>⌘</kbd><kbd>↑</kbd> <kbd>⌘</kbd><kbd>↓</kbd></td><td>Volume up / down</td></tr>
+    <tr><td><kbd>⌘</kbd><kbd>0</kbd></td><td>Full screen (<kbd>Esc</kbd> to leave)</td></tr>
+    <tr><td><kbd>⌘</kbd><kbd>1</kbd> <kbd>⌘</kbd><kbd>2</kbd> <kbd>⌘</kbd><kbd>3</kbd></td><td>Half, actual or double size</td></tr>
+  </table>
+</section>
+
+<section id="edit">
+  <h2>Selecting and editing</h2>
+  <p>Edits change only what you play, save or export. Your original files are never modified.</p>
+  <h3>Make a selection</h3>
+  <ol class="steps">
+    <li>Move the playhead to where the selection should start and press <kbd>I</kbd>.</li>
+    <li>Move to where it should end and press <kbd>O</kbd>.</li>
+  </ol>
+  <p>You can also Shift-drag along the timeline, or use <span class="menu">Edit › Go to Time…</span> <kbd>⌘</kbd><kbd>G</kbd>: type <code>1:00-2:00</code> to select from 1 to 2 minutes.</p>
+  <h3>Edit commands</h3>
+  <table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><span class="menu">Cut</span> <kbd>⌘</kbd><kbd>X</kbd></td><td>Removes the selection</td></tr>
+    <tr><td><span class="menu">Copy</span> <kbd>⌘</kbd><kbd>C</kbd> / <span class="menu">Paste</span> <kbd>⌘</kbd><kbd>V</kbd></td><td>Copies the selection / inserts it at the playhead, even in another file</td></tr>
+    <tr><td><span class="menu">Trim</span> <kbd>⌘</kbd><kbd>T</kbd></td><td>Shows only the selection, for precise work on a long recording</td></tr>
+    <tr><td><span class="menu">Revert Trimming</span> <kbd>⇧</kbd><kbd>⌘</kbd><kbd>T</kbd></td><td>Shows the whole stream again; no edits are lost</td></tr>
+    <tr><td><span class="menu">Undo</span> <kbd>⌘</kbd><kbd>Z</kbd> / <span class="menu">Redo</span> <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd></td><td>Unlimited steps, including trims and appended clips</td></tr>
+    <tr><td><span class="menu">Delete Audio Track</span></td><td>Leaves the current audio track out of saves and conversions</td></tr>
+  </table>
+  <figure>
+    <img src="images/player-edited.png" alt="Timeline after a cut">
+    <figcaption>After a cut, a red line on the timeline marks where the two parts meet.</figcaption>
+  </figure>
+  <h3>The edit list</h3>
+  <p><span class="menu">List › Edit List</span> <kbd>⌘</kbd><kbd>L</kbd> lists each piece of the edited stream. Double-click a row to select that piece in the player.</p>
+  <figure class="small">
+    <img src="images/edit-list.png" alt="Edit list">
+    <figcaption>The edit list after one cut.</figcaption>
+  </figure>
+  <div class="tip"><b>How precise are edits?</b>Exports are accurate to the frame. Lossless commands copy the video without re-encoding, so each piece starts on a keyframe, usually every half second for MPEG-2. Turn on <em>Preserve GOPs at In/Out</em> in Settings to keep, rather than drop, the partial piece at each cut.</div>
+</section>
+
+<section id="join">
+  <h2>Joining clips</h2>
+  <p>To add a clip to the end of the one in the player, <b>drag the file onto the player window</b>. TRT asks what to do with it:</p>
+  <ul>
+    <li><b>Append</b> adds the new clip to the end of the current one.</li>
+    <li><b>Replace</b> closes the current clip and opens the new one in the same window. Any edits to the current clip are discarded.</li>
+  </ul>
+  <figure class="small">
+    <img src="images/drop-dialog.png" alt="Append or replace dialog">
+    <figcaption>Dropping a file on a player that already holds a clip.</figcaption>
+  </figure>
+  <p>You can also choose <span class="menu">File › Append Clip…</span> <kbd>⌥</kbd><kbd>⌘</kbd><kbd>A</kbd>, which appends without asking. You can drop or choose several files at once; they are added in name order.</p>
+  <figure>
+    <img src="images/player-appended.png" alt="A clip appended to the end of the stream">
+    <figcaption>An appended clip: the timeline grows, and the red line marks the join.</figcaption>
+  </figure>
+  <ul>
+    <li>Appending can be undone with <kbd>⌘</kbd><kbd>Z</kbd>.</li>
+    <li>Clips in the <b>same format</b> (for example, recordings from one camera or channel) can be joined with lossless commands such as Convert to MPEG or Save As.</li>
+    <li>Clips in <b>different formats</b> can be joined with any Export command. TRT scales and resamples them to match the first clip. A clip with no sound gets silence so the soundtrack stays in sync.</li>
+  </ul>
+  <div class="tip"><b>Joining with copy and paste</b>You can also copy part of one file, open another, and paste it at the playhead.</div>
+</section>
+
+<section id="convert">
+  <h2>Lossless conversion and Save As</h2>
+  <p>Lossless commands copy the video exactly as it is: full quality, about as fast as copying the file. They save the selection (or everything, if nothing is selected), including your edits.</p>
+  <table>
+    <tr><th>File menu command</th><th>Produces</th><th>Notes</th></tr>
+    <tr><td>Convert to MPEG</td><td>.mpg</td><td>DVD-compatible; needs MPEG-1/2 video</td></tr>
+    <tr><td>Convert to MPEG with MP2 Audio</td><td>.mpg</td><td>Changes AC3/PCM audio to MP2</td></tr>
+    <tr><td>Convert to TS (with MP2 Audio)</td><td>.ts</td><td>Any video codec</td></tr>
+    <tr><td>Convert to MP4 / MOV / MKV</td><td>.mp4, .mov, .mkv</td><td>Any codec, re-wrapped</td></tr>
+    <tr><td>Demux to M2V and AIFF / M1A / AC3</td><td>Separate files</td><td>For DVD authoring tools</td></tr>
+    <tr><td>Save As…</td><td>Same or another container</td><td>All tracks, with edits</td></tr>
+  </table>
+  <p>The MPEG and M2V commands need MPEG-1 or MPEG-2 video. For anything else, such as H.264 from a camcorder, use Convert to MP4/MOV/MKV or an Export.</p>
+  <h3>Damaged recordings</h3>
+  <ul>
+    <li><span class="menu">Edit › Fix Timecode Breaks</span> finds jumps in the timing (common in VOB and TV recordings) and repairs them when you convert.</li>
+    <li><span class="menu">File › Check Stream</span> decodes the whole file and lists any damage in the Log.</li>
+    <li><b>Fix streams with data breaks</b> in Settings skips corrupt data instead of stopping.</li>
+  </ul>
+</section>
+
+<section id="export">
+  <h2>Exporting</h2>
+  <p>Exporting re-encodes the selection to a new format, size or codec. Choose an exporter from the <span class="menu">File</span> menu and adjust the settings. Click <b>Preview</b> to see the current frame with your settings applied, then click <b>Make Movie</b>.</p>
+  <figure class="tall">
+    <img src="images/exporter.png" alt="The QuickTime exporter">
+    <figcaption>The QuickTime exporter. The preview shows the frame scaled to 1024 × 576, with a watermark.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Exporter</th><th>Video codecs</th></tr>
+    <tr><td>QuickTime <kbd>⌘</kbd><kbd>E</kbd></td><td>H.264, HEVC, Apple ProRes, Avid DNxHR, GoPro CineForm, Hap / Hap Alpha / Hap Q, Animation, PNG, uncompressed 10-bit, Motion JPEG, DV</td></tr>
+    <tr><td>MPEG-4 <kbd>⇧</kbd><kbd>⌘</kbd><kbd>E</kbd></td><td>H.264, HEVC, AV1, MPEG-4 Part 2</td></tr>
+    <tr><td>AVI</td><td>DivX/Xvid-compatible MPEG-4, H.264, Motion JPEG, DV, Ut Video</td></tr>
+    <tr><td>MKV / WebM</td><td>AV1, VP9, H.264, HEVC, FFV1, ProRes, DNxHR</td></tr>
+    <tr><td>DV</td><td>DV25 or DVCPRO50, PAL or NTSC</td></tr>
+    <tr><td>MPEG-2 (DVD)</td><td>DVD-compliant MPEG-2</td></tr>
+    <tr><td>Audio <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd></td><td>AIFF, WAV, AAC, Apple Lossless, MP3, MP2, AC3, FLAC, Opus</td></tr>
+    <tr><td>Frame <kbd>⌥</kbd><kbd>⌘</kbd><kbd>F</kbd></td><td>One still as PNG, JPEG or TIFF</td></tr>
+  </table>
+  <h3>Settings in the exporter</h3>
+  <ul>
+    <li><b>Compression</b>: codec, quality or data-rate limit, multipass, B-frames, ProRes and DNxHR profiles.</li>
+    <li><b>Picture</b>: frame size, frame rate and blending, field order, deinterlacing, rotation, zoom, cropping.</li>
+    <li><b>Sound</b>: format, channels, sample rate, bit rate, surround downmix; <em>Pass Through</em> keeps the original audio.</li>
+    <li><b>Adjustments</b>: brightness, contrast, saturation, volume, and a watermark text.</li>
+    <li><b>Presets</b>: save all settings under a name and load them later.</li>
+  </ul>
+  <div class="tip"><b>Interlaced video</b>DVD and TV recordings are usually interlaced. Keep <em>Interlaced scaling</em> on to export for TV, or turn on <em>Deinterlace video</em> to watch on computers and phones.</div>
+</section>
+
+<section id="batch">
+  <h2>Batch processing</h2>
+  <p>The Batch List runs many conversions one after another, or several at once. Open it with <span class="menu">List › Batch List</span> <kbd>⌘</kbd><kbd>B</kbd>.</p>
+  <figure>
+    <img src="images/batch.png" alt="The batch list">
+    <figcaption>Two tasks waiting and one held.</figcaption>
+  </figure>
+  <ul>
+    <li><b>While the Batch List is open</b>, Save As, Convert, Export and Download commands are added to it instead of running immediately.</li>
+    <li><b>Add Files…</b> (or dropping files onto the list) applies one task to many files.</li>
+    <li><b>Go</b> starts the queue. <b>Hold</b> skips a task, <b>Repeat</b> runs it again, and <b>Redirect…</b> changes where files are saved.</li>
+    <li><b>Simultaneous tasks</b> runs several at once; 2 to 4 suits most Macs. <b>Script…</b> runs an AppleScript or app when everything is finished.</li>
+  </ul>
+</section>
+
+<section id="windows">
+  <h2>Stream Info, Log and Settings</h2>
+  <h3>Stream Info <kbd>⌘</kbd><kbd>I</kbd></h3>
+  <p>Shows the file's format, size and length, and for each track its codec, frame size, frame rate, scan type, sample rate and channels.</p>
+  <figure class="small">
+    <img src="images/stream-info.png" alt="Stream info">
+    <figcaption>Stream Info for an MPEG-2 DVD recording.</figcaption>
+  </figure>
+  <h3>Log <kbd>⇧</kbd><kbd>⌘</kbd><kbd>L</kbd></h3>
+  <p>Records every conversion, error and stream check. <b>Check Stream</b> scans the open file for damage.</p>
+  <figure class="narrow">
+    <img src="images/log.png" alt="The log window">
+    <figcaption>A stream check that found no errors.</figcaption>
+  </figure>
+  <h3>Settings <kbd>⌘</kbd><kbd>,</kbd></h3>
+  <figure class="small">
+    <img src="images/settings.png" alt="Settings">
+  </figure>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>Fix streams with data breaks</td><td>Skip corrupt data in TV and tape recordings</td></tr>
+    <tr><td>Preserve GOPs at In/Out</td><td>Lossless cuts keep, rather than drop, partial picture groups</td></tr>
+    <tr><td>Convert only the selected audio track</td><td>Convert commands use one track instead of all</td></tr>
+    <tr><td>Resample converted audio to 48 kHz</td><td>When a conversion changes the audio format</td></tr>
+    <tr><td>Skip buttons interval</td><td>How far the skip buttons jump</td></tr>
+    <tr><td>Default surround downmix</td><td>Downmix used when a file opens</td></tr>
+    <tr><td>Maximum display resolution</td><td>Lower it if 4K playback stutters</td></tr>
+  </table>
+</section>
+
+<section id="help">
+  <h2>Troubleshooting</h2>
+  <table>
+    <tr><th>Problem</th><th>What to do</th></tr>
+    <tr><td>macOS won't open the app</td><td>System Settings › Privacy &amp; Security › <b>Open Anyway</b>.</td></tr>
+    <tr><td>A file won't open</td><td>The Log shows why. Encrypted DVDs and files with DRM can't be opened.</td></tr>
+    <tr><td>“Needs MPEG-1 or MPEG-2 video”</td><td>Use Convert to MP4/MOV/MKV or an Export instead.</td></tr>
+    <tr><td>“Can't join clips in different formats”</td><td>Lossless commands need matching clips. Use an Export to join them.</td></tr>
+    <tr><td>Lossless output starts slightly after the In point</td><td>It starts on the next keyframe. Export instead for frame accuracy.</td></tr>
+    <tr><td>Lines on moving edges</td><td>The video is interlaced: turn on <em>Deinterlace video</em>.</td></tr>
+    <tr><td>Exported picture is the wrong shape</td><td>Pick a frame size matching the shape in Stream Info (16:9 or 4:3).</td></tr>
+    <tr><td>4K playback stutters</td><td>Lower <em>Maximum display resolution</em> in Settings.</td></tr>
+  </table>
+  <div class="note"><b>Your files are safe</b>TRT never changes the files you open. Every command writes a new file.</div>
+</section>
+
+</main>
+<footer>TinRoof Transcode · Help › TinRoof Transcode Guide</footer>
+</body>
+</html>

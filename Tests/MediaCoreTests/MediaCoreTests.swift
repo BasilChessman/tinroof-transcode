@@ -220,6 +220,23 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testExportJoinsClipsInDifferentFormats() throws {
+        // MPEG-2 720x576 25 fps with 5.1 AC3, then H.264 1080p 29.97 fps with stereo AAC, then a clip with no sound.
+        let a = try source("sample_pal_ac3.mpg"), b = try source("sample_h264.ts"), c = try source("sample_silent.mp4")
+        var req = RenderRequest(sources: [a, b, c], segments: [Segment(sourceID: a.id, start: 1, end: 3), Segment(sourceID: b.id, start: 2, end: 4),
+                                                            Segment(sourceID: c.id, start: 0, end: 1.5)],
+                                videoStream: a.info.videoStreams.first?.index, audioStreams: [a.info.audioStreams.first!.index])
+        req.selections[b.id] = StreamSelection(video: b.info.videoStreams.first?.index, audio: [b.info.audioStreams.first!.index])
+        req.selections[c.id] = StreamSelection(video: c.info.videoStreams.first?.index, audio: [])
+        var s = ExportSettings(kind: .mpeg4)
+        s.frameSize = FrameSize(1024, 576)
+        let infos = run(JobSpec(kind: .export(s), request: req, output: out.appendingPathComponent("joined.mp4")))
+        let info = try XCTUnwrap(infos.first)
+        XCTAssertEqual(info.duration, 5.5, accuracy: 0.3)
+        XCTAssertEqual(info.videoStreams.first?.width, 1024)
+        XCTAssertEqual(info.audioStreams.count, 1)
+    }
+
     func testFrameExportAndSaveAs() throws {
         let src = try source("sample_pal_ac3.mpg")
         var s = ExportSettings(kind: .frame)

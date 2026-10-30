@@ -4,10 +4,26 @@ import UniformTypeIdentifiers
 import MediaCore
 
 /// Content view that receives the player's keyboard shortcuts.
-final class PlayerContentView: NSView {
+final class PlayerContentView: NSView, NSMenuItemValidation {
     weak var controller: PlayerWindowController?
+
+    // NSWindow handles undo:/redo: itself (with its own, always-empty undo manager) before the
+    // window controller is reached, so the content view forwards them to the edit history.
+    @objc func undo(_ sender: Any?) { controller?.undo(sender) }
+    @objc func redo(_ sender: Any?) { controller?.redo(sender) }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool { controller?.validateMenuItem(item) ?? false }
+
+    // Files dropped anywhere on the player window: ask whether to append or replace.
+    override func viewDidMoveToWindow() { registerForDraggedTypes([.fileURL]) }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty else { return false }
+        controller?.handleDrop(urls)
+        return true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        ChromeStyle.background.setFill()
         dirtyRect.fill()
     }
     override var acceptsFirstResponder: Bool { true }
@@ -21,14 +37,15 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     let doc: PlayerDocument
     let engine = PlaybackEngine()
     private let videoView = VideoView()
-    private let timeline = TimelineView()
-    private let timeLabel = NSTextField(labelWithString: "0:00:00.00")
-    private let selectionLabel = NSTextField(labelWithString: "")
-    private let videoPopup = NSPopUpButton()
-    private let audioPopup = NSPopUpButton()
-    private let modePopup = NSPopUpButton()
+    private var chrome: PlayerChrome!
+    private var timeline: TimelineView { chrome.timeline }
+    private var timeLabel: NSTextField { chrome.timeLabel }
+    private var videoPopup: NSPopUpButton { chrome.videoPopup }
+    private var audioPopup: NSPopUpButton { chrome.audioPopup }
+    private var modePopup: NSPopUpButton { chrome.modePopup }
+    private var playButton: NSButton { chrome.play }
+    /// Volume is set from the keyboard (⌘↑ / ⌘↓); this slider is not shown in the classic layout.
     private let volumeSlider = NSSlider(value: 1, minValue: 0, maxValue: 1, target: nil, action: nil)
-    private var playButton: NSButton!
     private var cancellables = Set<AnyCancellable>()
     private var uiTimer: Timer?
     private var selectionAnchor: Double?
@@ -43,13 +60,16 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 560),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.collectionBehavior = [.fullScreenPrimary]
-        window.minSize = NSSize(width: 520, height: 300)
+        window.minSize = NSSize(width: PlayerChrome.minimumWidth, height: 420)
         super.init(window: window)
+        shouldCascadeWindows = false   // new players take the place of the empty player or a replaced clip
         window.delegate = self
         window.title = doc.title
         window.representedURL = doc.primary.locations.first?.isFileURL == true ? doc.primary.locations.first : nil
         buildUI()
         bind()
+        window.initialFirstResponder = window.contentView
+        window.makeFirstResponder(window.contentView)
         doc.buildIndex()
         resizeToFit(scale: 1)
         window.center()
@@ -72,54 +92,17 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         content.controller = self
         window!.contentView = content
 
-        let skipBack = button("backward.fill", "Skip back (Page Up). Option: 1 minute", #selector(skipBackward(_:)))
-        let reverse = button("arrowtriangle.backward", "Play backwards / faster (J). Option: slow motion", #selector(reversePlay(_:)))
-        playButton = button("play.fill", "Play / Stop (Space). Option: loop selection", #selector(playStop(_:)))
-        let forward = button("arrowtriangle.forward", "Play faster (L). Option: slow motion", #selector(forwardPlay(_:)))
-        let skipFwd = button("forward.fill", "Skip forward (Page Down). Option: 1 minute", #selector(skipForward(_:)))
-
-        timeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        selectionLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        selectionLabel.textColor = .secondaryLabelColor
+        window?.appearance = NSAppearance(named: .aqua)   // the classic grey player is always light
+        chrome = PlayerChrome(in: content, picture: videoView)
+        let actions: [Selector] = [#selector(skipBackward(_:)), #selector(reversePlay(_:)), #selector(playStop(_:)),
+                                   #selector(forwardPlay(_:)), #selector(skipForward(_:))]
+        for (b, a) in zip(chrome.transport, actions) { b.target = self; b.action = a }
 
         videoPopup.target = self; videoPopup.action = #selector(videoTrackChanged(_:))
         audioPopup.target = self; audioPopup.action = #selector(audioTrackChanged(_:))
         modePopup.target = self; modePopup.action = #selector(audioModeChanged(_:))
-        for m in AudioMixMode.allCases { modePopup.addItem(withTitle: m.label) }
-        [videoPopup, audioPopup, modePopup].forEach { $0.controlSize = .small; $0.font = .systemFont(ofSize: 11) }
         volumeSlider.target = self
         volumeSlider.action = #selector(volumeChanged(_:))
-        volumeSlider.controlSize = .small
-        volumeSlider.widthAnchor.constraint(equalToConstant: 70).isActive = true
-
-        let transport = NSStackView(views: [skipBack, reverse, playButton, forward, skipFwd, timeLabel, selectionLabel])
-        transport.spacing = 6
-        let tracks = NSStackView(views: [NSTextField(labelWithString: "Video:"), videoPopup, NSTextField(labelWithString: "Audio:"), audioPopup, modePopup,
-                                         NSImageView(image: NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: "Volume")!), volumeSlider])
-        tracks.spacing = 6
-        tracks.views.compactMap { $0 as? NSTextField }.forEach { $0.font = .systemFont(ofSize: 11); $0.textColor = .secondaryLabelColor }
-
-        let controls = NSStackView(views: [timeline, transport, tracks])
-        controls.orientation = .vertical
-        controls.alignment = .leading
-        controls.spacing = 4
-        controls.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 8, right: 8)
-        timeline.heightAnchor.constraint(equalToConstant: 26).isActive = true
-        timeline.widthAnchor.constraint(equalTo: controls.widthAnchor, constant: -16).isActive = true
-
-        for v in [videoView, controls] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(v)
-        }
-        NSLayoutConstraint.activate([
-            videoView.topAnchor.constraint(equalTo: content.topAnchor),
-            videoView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            videoView.bottomAnchor.constraint(equalTo: controls.topAnchor),
-            controls.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            controls.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            controls.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-        ])
 
         videoView.onDoubleClick = { [weak self] in self?.playStop(nil) }
         videoView.onScroll = { [weak self] delta, mods in
@@ -127,7 +110,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             let frames = mods.contains(.option) ? 10.0 : 1.0
             self.move(to: self.doc.position + (delta > 0 ? -1 : 1) * frames * self.doc.frameDuration, extend: mods.contains(.shift))
         }
-        videoView.onFileDrop = { urls, _ in AppDelegate.shared.open(urls) }
+        // Dropping clips onto a player appends them to the end of its stream (as in MPEG Streamclip).
+        videoView.onFileDrop = { [weak self] urls, _ in self?.handleDrop(urls) }
         timeline.onSeek = { [weak self] t, extend in self?.move(to: t, extend: extend) }
 
         engine.onFrame = { [weak self] image, time in
@@ -159,7 +143,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
                 guard let self, self.engine.isPlaying else { return }
                 let t = self.engine.clock.now()
                 self.timeline.position = t
-                self.timeLabel.stringValue = Timecode.format(t) + " / " + Timecode.format(self.doc.window.upperBound)
+                self.timeLabel.stringValue = Timecode.format(t)
             }
         }
         refreshControls()
@@ -173,14 +157,16 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         timeline.cutPoints = d.edit.cutPoints
         timeline.progress = d.indexingProgress
         timeline.markers = d.fixTimecodeBreaks ? (d.primaryIndex?.breaks ?? []) : []
-        timeLabel.stringValue = Timecode.format(d.position) + " / " + Timecode.format(d.window.upperBound)
-        selectionLabel.stringValue = d.hasSelection
-            ? "In \(Timecode.format(d.selection.lowerBound))  Out \(Timecode.format(d.selection.upperBound))  (\(Timecode.format(d.selection.upperBound - d.selection.lowerBound, showHours: false)))"
-            : ""
+        timeLabel.stringValue = Timecode.format(d.position)
+        chrome.inLabel.stringValue = Timecode.format(d.selection.lowerBound)
+        chrome.outLabel.stringValue = Timecode.format(d.selection.upperBound)
+        chrome.trimStartLabel.stringValue = Timecode.format(d.window.lowerBound)
+        chrome.trimEndLabel.stringValue = Timecode.format(d.window.upperBound)
+        chrome.stateLabel.stringValue = engine.isPlaying ? "▶" : "■"
         window?.isDocumentEdited = d.history.isModified
 
         videoPopup.removeAllItems()
-        for v in d.primary.info.videoStreams { videoPopup.addItem(withTitle: v.menuTitle); videoPopup.lastItem?.tag = v.index }
+        for v in d.primary.info.videoStreams { videoPopup.addItem(withTitle: v.shortTitle); videoPopup.lastItem?.tag = v.index; videoPopup.lastItem?.toolTip = v.menuTitle }
         if videoPopup.numberOfItems == 0 { videoPopup.addItem(withTitle: "None") }
         if let v = d.videoStream { videoPopup.selectItem(withTag: v) }
 
@@ -188,16 +174,28 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         if let companion = d.primary.companionAudio {
             audioPopup.addItem(withTitle: companion.lastPathComponent)
         } else {
-            for a in d.availableAudio { audioPopup.addItem(withTitle: a.menuTitle); audioPopup.lastItem?.tag = a.index }
+            for a in d.availableAudio { audioPopup.addItem(withTitle: a.shortTitle); audioPopup.lastItem?.tag = a.index; audioPopup.lastItem?.toolTip = a.menuTitle }
             if audioPopup.numberOfItems == 0 { audioPopup.addItem(withTitle: "None") }
             if let a = d.audioStream { audioPopup.selectItem(withTag: a) }
         }
-        modePopup.selectItem(at: d.audioMode.rawValue)
-        modePopup.isHidden = (d.audioInfo?.channels ?? 0) <= 2
+        // Audio Mode: downmix choices for surround audio; a dash otherwise (as in the original).
+        modePopup.removeAllItems()
+        if (d.audioInfo?.channels ?? 0) > 2 {
+            for m in AudioMixMode.allCases { modePopup.addItem(withTitle: m.label) }
+            modePopup.selectItem(at: d.audioMode.rawValue)
+            modePopup.isEnabled = true
+        } else {
+            modePopup.addItem(withTitle: "–")
+            modePopup.isEnabled = false
+        }
+        videoPopup.toolTip = d.videoInfo?.menuTitle
+        audioPopup.toolTip = d.audioInfo?.menuTitle
     }
 
     private func updatePlayButton() {
-        playButton.image = NSImage(systemSymbolName: engine.isPlaying ? "pause.fill" : "play.fill", accessibilityDescription: nil)
+        playButton.image = NSImage(systemSymbolName: engine.isPlaying ? "pause.fill" : "play.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
+        chrome.stateLabel.stringValue = engine.isPlaying ? "▶" : "■"
     }
 
     private var displaySize: CGSize? {
@@ -210,9 +208,88 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     var snapshot: PlaybackSnapshot {
-        PlaybackSnapshot(edit: doc.edit, sources: doc.sources, videoStream: doc.videoStream,
-                         audioStream: doc.primary.companionAudio != nil ? nil : doc.audioStream,
-                         audioMode: doc.audioMode, displaySize: displaySize)
+        var video: [UUID: Int] = [:], audio: [UUID: Int] = [:]
+        for id in doc.sources.keys {
+            let st = doc.streams(for: id)
+            video[id] = st.video
+            audio[id] = st.audio
+        }
+        return PlaybackSnapshot(edit: doc.edit, sources: doc.sources, videoStreams: video, audioStreams: audio,
+                                audioMode: doc.audioMode, displaySize: displaySize)
+    }
+
+    // MARK: Appending clips
+
+    /// Appends dropped or chosen files to the end of this player's stream.
+    func appendClips(_ urls: [URL]) {
+        let files = urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        guard !files.isEmpty else { return }
+        engine.stop(notify: false)
+        updatePlayButton()
+        AppDelegate.shared.log("Appending \(files.count) clip(s) to \(doc.title)…")
+        Task.detached(priority: .userInitiated) {
+            var loaded: [SourceMedia] = []
+            var failures: [String] = []
+            for url in files {
+                do { loaded.append(try SourceMedia.open([url], companionAudio: SequenceDetector.companionAudio(for: url))) }
+                catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+            }
+            let ready = loaded, failed = failures
+            await MainActor.run {
+                for src in ready {
+                    self.doc.append(src)
+                    AppDelegate.shared.log("Appended \(src.displayName) (\(Timecode.format(src.info.duration))).")
+                }
+                if !ready.isEmpty {
+                    self.engine.setPosition(self.doc.position)
+                    self.refreshFrame()
+                    if self.doc.hasMixedSources {
+                        AppDelegate.shared.log("The joined clips have different formats: use an Export command to join them (lossless commands need matching formats).")
+                    }
+                }
+                if !failed.isEmpty {
+                    let a = NSAlert()
+                    a.messageText = failed.count == 1 ? "A clip could not be appended." : "\(failed.count) clips could not be appended."
+                    a.informativeText = failed.joined(separator: "\n")
+                    a.runModal()
+                }
+            }
+        }
+    }
+
+    /// A drop on a player that already holds a clip: append the files, or replace the clip with them.
+    func handleDrop(_ urls: [URL]) {
+        guard let window else { return }
+        let names = urls.map(\.lastPathComponent)
+        let alert = NSAlert()
+        alert.messageText = names.count == 1
+            ? "Append “\(names[0])” to this clip, or replace it?"
+            : "Append \(names.count) clips to this clip, or replace it?"
+        var info = "Append adds the new \(names.count == 1 ? "clip" : "clips") to the end of “\(doc.title)”. Replace closes “\(doc.title)” and opens the new \(names.count == 1 ? "clip" : "clips") in this window."
+        if doc.history.isModified { info += "\n\nReplacing discards your edits to “\(doc.title)”." }
+        alert.informativeText = info
+        alert.addButton(withTitle: "Append")
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            switch response {
+            case .alertFirstButtonReturn: self.appendClips(urls)
+            case .alertSecondButtonReturn: AppDelegate.shared.open(urls, replacing: self)
+            default: break
+            }
+        }
+    }
+
+    @objc func appendClip(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose clips to add to the end of “\(doc.title)”."
+        panel.prompt = "Append"
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK else { return }
+            self.appendClips(panel.urls)
+        }
     }
 
     func refreshFrame() {
@@ -514,8 +591,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             let f = min(1, maxW / max(w, 1), maxH / max(h, 1))
             w *= f; h *= f
         }
-        let controlsHeight: CGFloat = 92
-        let frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: max(520, w), height: h + controlsHeight))
+        let controlsHeight: CGFloat = PlayerChrome.chromeHeight + 8
+        let frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: max(PlayerChrome.minimumWidth, w + 32), height: h + controlsHeight))
         var origin = window.frame.origin
         origin.y += window.frame.height - frame.height
         window.setFrame(NSRect(origin: origin, size: frame.size), display: true, animate: false)
@@ -564,6 +641,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        if window?.firstResponder === window { window?.makeFirstResponder(window?.contentView) }
         AppDelegate.shared.activePlayerChanged()
     }
 

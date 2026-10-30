@@ -1,5 +1,6 @@
 import AppKit
 import MediaCore
+import WebKit
 
 /// Renders the app's main windows to PNG files for documentation.
 ///
@@ -19,8 +20,11 @@ enum ScreenshotMode {
             print("TRT_SAMPLE not set"); NSApp.terminate(nil); return
         }
         let app = AppDelegate.shared
-        app.openSource([URL(fileURLWithPath: sample)])
+        app.showEmptyPlayer()
         Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            capture(window(titled: "\(AppInfo.name) \(AppInfo.version)"), to: dir.appendingPathComponent("empty-player.png"))
+            app.openSource([URL(fileURLWithPath: sample)])
             // Wait for the player and its first frame.
             var player: PlayerWindowController?
             for _ in 0..<100 {
@@ -39,6 +43,20 @@ enum ScreenshotMode {
             p.doc.outPoint = 9.0
             try? await Task.sleep(for: .seconds(1))
             capture(p.window, to: dir.appendingPathComponent("player.png"), video: p)
+
+            // Self-check: Trim, then Undo through the real menu routing.
+            p.window?.makeKeyAndOrderFront(nil)
+            p.trimSelection(nil)
+            // Walk the window's responder chain as AppKit does for a nil-targeted menu action.
+            var responder: NSResponder? = p.window?.firstResponder
+            while let r = responder, !r.responds(to: #selector(PlayerWindowController.undo(_:))) { responder = r.nextResponder }
+            let undoTarget: Any? = responder
+            let undoItem = NSMenuItem(title: "Undo", action: #selector(PlayerWindowController.undo(_:)), keyEquivalent: "z")
+            let enabled = (undoTarget as? NSMenuItemValidation)?.validateMenuItem(undoItem) ?? false
+            print("check: undo routed to \(undoTarget.map { String(describing: type(of: $0)) } ?? "nothing"), enabled=\(enabled), title=\"\(undoItem.title)\"")
+            (responder as? PlayerContentView)?.undo(undoItem)
+            print("check: after undo, window = \(p.doc.window), duration = \(p.doc.edit.duration)")
+            p.doc.inPoint = 4.0; p.doc.outPoint = 9.0
 
             // Edit: cut a piece so the edit list has segments, then show the edit list.
             p.doc.inPoint = 12; p.doc.outPoint = 14
@@ -100,6 +118,52 @@ enum ScreenshotMode {
             try? await Task.sleep(for: .milliseconds(800))
             capture(window(titled: "Log"), to: dir.appendingPathComponent("log.png"))
 
+            // Self-check: append a clip in a different format by the same path as a drop.
+            p.window?.makeKeyAndOrderFront(nil)
+            let before = p.doc.edit.duration
+            p.appendClips([URL(fileURLWithPath: sample).deletingLastPathComponent().appendingPathComponent("sample_h264.ts")])
+            for _ in 0..<80 where p.doc.edit.duration == before { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .seconds(1.5))
+            print("check: append \(before) -> \(p.doc.edit.duration) s, segments \(p.doc.edit.segments.count), mixed formats \(p.doc.hasMixedSources), undo title \(p.doc.history.undoName ?? "-")")
+            capture(p.window, to: dir.appendingPathComponent("player-appended.png"), video: p)
+
+            // Drop dialog: capture it, then cancel.
+            let h264 = URL(fileURLWithPath: sample).deletingLastPathComponent().appendingPathComponent("sample_h264.ts")
+            p.handleDrop([h264])
+            try? await Task.sleep(for: .milliseconds(900))
+            if let sheet = p.window?.attachedSheet {
+                capture(sheet, to: dir.appendingPathComponent("drop-dialog.png"), titleBar: false)
+                p.window?.endSheet(sheet, returnCode: .alertThirdButtonReturn)
+                print("check: drop dialog shown and cancelled; segments still \(p.doc.edit.segments.count)")
+            } else {
+                print("check: drop dialog NOT shown")
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+            // Replace: the new clip takes this player's place.
+            let oldFrame = p.window?.frame ?? .zero
+            app.open([h264], replacing: p)
+            for _ in 0..<80 where app.players.first === p { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .milliseconds(500))
+            let np = app.players.first
+            print("check: replace -> players \(app.players.count), title \(np?.window?.title ?? "-"), old closed \(p.window?.isVisible == false), placed at old position (kept on screen) \(np.map { abs($0.window!.frame.minX - oldFrame.minX) < 1 || $0.window!.frame.maxX >= (NSScreen.main?.visibleFrame.maxX ?? 0) - 1 || $0.window!.frame.minY <= 1 } ?? false)")
+            // Render the guide (for review; not part of the guide's own images).
+            if let check = ProcessInfo.processInfo.environment["TRT_GUIDE_SNAPSHOT"] {
+                app.showGuide(nil)
+                try? await Task.sleep(for: .seconds(2.5))
+                if let web = window(containing: "Guide")?.contentView as? WKWebView {
+                    web.window?.setContentSize(NSSize(width: 900, height: 1400))
+                    try? await Task.sleep(for: .seconds(1))
+                    for anchor in ["start", "join", "export", "edit"] {
+                        _ = try? await web.evaluateJavaScript("document.getElementById(\"\(anchor)\").scrollIntoView()")
+                        try? await Task.sleep(for: .milliseconds(600))
+                        if let img = try? await web.takeSnapshot(configuration: nil), let tiff = img.tiffRepresentation,
+                           let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                            try? png.write(to: URL(fileURLWithPath: check.replacingOccurrences(of: ".png", with: "-\(anchor).png")))
+                        }
+                    }
+                    print("guide snapshots written")
+                }
+            }
             print("Screenshots written to \(dir.path)")
             NSApp.terminate(nil)
         }
@@ -115,11 +179,11 @@ enum ScreenshotMode {
     }
 
     /// Draws a window's content view, plus the current video frame, with a title bar strip.
-    static func capture(_ window: NSWindow?, to url: URL, video: PlayerWindowController? = nil) {
+    static func capture(_ window: NSWindow?, to url: URL, video: PlayerWindowController? = nil, titleBar: Bool = true) {
         guard let window, let content = window.contentView else { print("no window for \(url.lastPathComponent)"); return }
         content.layoutSubtreeIfNeeded()
         let scale: CGFloat = 2
-        let titleHeight: CGFloat = 28
+        let titleHeight: CGFloat = titleBar ? 28 : 0
         let size = NSSize(width: content.bounds.width, height: content.bounds.height + titleHeight)
         guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
         content.cacheDisplay(in: content.bounds, to: rep)
@@ -144,6 +208,7 @@ enum ScreenshotMode {
             let dest = NSRect(x: r.midX - dw / 2, y: r.midY - dh / 2, width: dw, height: dh)
             NSGraphicsContext.current?.cgContext.draw(frame, in: dest)
         }
+        if titleBar {
         // Simple title bar.
         let bar = NSRect(x: 0, y: content.bounds.height, width: size.width, height: titleHeight)
         NSColor(white: 0.93, alpha: 1).setFill(); bar.fill()
@@ -155,6 +220,7 @@ enum ScreenshotMode {
         let title = NSAttributedString(string: window.title, attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor])
         let ts = title.size()
         title.draw(at: NSPoint(x: (size.width - ts.width) / 2, y: bar.midY - ts.height / 2))
+        }
         NSGraphicsContext.restoreGraphicsState()
         image.addRepresentation(out)
         if let data = out.representation(using: .png, properties: [:]) {

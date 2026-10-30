@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="${APP_NAME:-TinRoof Transcode}"
 BUNDLE_ID="${BUNDLE_ID:-com.tinroof.transcode}"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.1}"
 OUT="${OUT:-build/${APP_NAME}.app}"
 MIN_MACOS="${MIN_MACOS:-14.0}"
 
@@ -27,7 +27,11 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/${APP_NAME}"
-cp Resources/Guide.md "$OUT/Contents/Resources/Guide.md"
+# Illustrated guide: HTML from Resources/Guide, screenshots from docs/screenshots.
+mkdir -p "$OUT/Contents/Resources/Guide/images"
+cp Resources/Guide/*.html Resources/Guide/*.css "$OUT/Contents/Resources/Guide/"
+cp docs/screenshots/*.png "$OUT/Contents/Resources/Guide/images/"
+sips -z 256 256 Resources/AppIcon-1024.png --out "$OUT/Contents/Resources/Guide/images/icon.png" >/dev/null
 cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 if [ -n "$FFMPEG" ]; then
   mkdir -p "$OUT/Contents/Resources/bin"

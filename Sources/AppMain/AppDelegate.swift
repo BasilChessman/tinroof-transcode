@@ -10,6 +10,7 @@ enum AppInfo {
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
             ?? "TinRoof Transcode"
     }
+    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
     static var supportDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.tinroof.transcode", isDirectory: true)
@@ -63,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         if let dir = ScreenshotMode.directory { ScreenshotMode.run(in: dir); return }
         if !pendingOpen.isEmpty { open(pendingOpen); pendingOpen = [] }
-        else if players.isEmpty { openFiles(nil) }
+        else if players.isEmpty { showEmptyPlayer() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -71,6 +72,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { if let p = players.first { p.showWindow(nil) } else { showEmptyPlayer() } }
+        return true
+    }
+
+    // MARK: Empty player
+
+    private var emptyPlayer: EmptyPlayerWindowController?
+
+    /// Shows the empty player (app icon, drop target) used when no clip is open.
+    func showEmptyPlayer() {
+        if emptyPlayer == nil { emptyPlayer = EmptyPlayerWindowController() }
+        emptyPlayer?.showWindow(nil)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let running = batch.runningCount + immediate.runningCount
@@ -99,6 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Opens dropped or chosen files. Several MPEG files are joined into one stream; other files open separately.
+    /// Player to close when the next clip opens (Replace in the drop dialog).
+    private weak var replacementTarget: PlayerWindowController?
+
+    /// Opens files in place of an existing player: the new clip takes its window position, and the old one closes.
+    func open(_ urls: [URL], replacing player: PlayerWindowController) {
+        replacementTarget = player
+        open(urls)
+    }
+
     func open(_ urls: [URL]) {
         let sorted = urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         var isDir: ObjCBool = false
@@ -136,15 +161,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     if self.batchIsOpen && self.addingFilesToBatch { return }
                     let doc = PlayerDocument(source: src)
                     let pc = PlayerWindowController(doc: doc)
+                    let replaced = self.replacementTarget?.window
+                    self.replacementTarget = nil
+                    if let old = replaced {
+                        // Replace: the new clip takes the old player's place.
+                        pc.window?.setFrameTopLeftPoint(NSPoint(x: old.frame.minX, y: old.frame.maxY))
+                    } else if let empty = self.emptyPlayer?.window, empty.isVisible {
+                        // The first clip opens where the empty player was, replacing it.
+                        pc.window?.setFrameTopLeftPoint(NSPoint(x: empty.frame.minX, y: empty.frame.maxY))
+                        empty.orderOut(nil)
+                    }
                     self.players.append(pc)
                     self.activePlayer = pc
                     self.objectWillChangeForPanels()
                     pc.showWindow(nil)
+                    // Close the replaced player only once the new one is registered,
+                    // so the empty player doesn't flash up in between.
+                    replaced?.close()
                     for l in locations where l.isFileURL { NSDocumentController.shared.noteNewRecentDocumentURL(l) }
                     self.log("Opened \(src.displayName): \(src.info.formatLongName), \(Timecode.format(src.info.duration))")
                 }
             } catch {
                 await MainActor.run {
+                    self.replacementTarget = nil   // keep the current clip if the new one can't be opened
                     self.log("Cannot open \(name): \(error.localizedDescription)")
                     let a = NSAlert(error: error)
                     a.messageText = "“\(name)” could not be opened."
@@ -205,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func playerClosed(_ p: PlayerWindowController) {
         players.removeAll { $0 === p }
         objectWillChangeForPanels()
+        if players.isEmpty { showEmptyPlayer() }
     }
 
     let panelRefresh = PanelRefresh()
@@ -261,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func convert(_ sender: NSMenuItem) {
         guard let p = currentPlayer, let target = sender.representedObject as? ConvertTarget else { return }
+        guard ensureMatchingClips(p, action: target.title) else { return }
         let allAudio = !Pref.d.bool(forKey: Pref.convertOneAudioTrack) && !target.isDemux
         let req = p.doc.renderRequest(lossless: true, allAudio: allAudio)
         if target.requiresMPEGVideo, let v = p.doc.videoInfo, v.codec != "mpeg2video" && v.codec != "mpeg1video" {
@@ -275,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func saveAs(_ sender: Any?) {
         guard let p = currentPlayer else { return }
+        guard ensureMatchingClips(p, action: "Save As") else { return }
         let src = p.doc.primary
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26))
         for f in SaveAsFormat.allCases { popup.addItem(withTitle: f.rawValue) }
@@ -364,8 +406,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showPreferences(_ sender: Any?) {
         showPanel("prefs", title: "Settings", size: NSSize(width: 520, height: 520), resizable: false) { PreferencesView() }
     }
+    private var guide: GuideWindowController?
     @objc func showGuide(_ sender: Any?) {
-        showPanel("guide", title: "\(AppInfo.name) Guide", size: NSSize(width: 640, height: 600)) { GuideView() }
+        if guide == nil { guide = GuideWindowController() }
+        guide?.showWindow(nil)
     }
 
     @objc func addFilesToBatch(_ sender: Any?) { BatchAddFlow.run() }
@@ -428,6 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mi("Open Files…", #selector(openFiles(_:)), "o", target: self),
             mi("Open DVD…", #selector(openDVD(_:)), "o", [.command, .shift], target: self),
             mi("Open URL…", #selector(openURL(_:)), "u", target: self),
+            mi("Append Clip…", #selector(PlayerWindowController.appendClip(_:)), "a", [.command, .option]),
             sep(),
             mi("Close", #selector(NSWindow.performClose(_:)), "w"),
             mi("Save As…", #selector(saveAs(_:)), "s", [.command, .shift], target: self),
@@ -493,4 +538,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 @MainActor
 final class PanelRefresh: ObservableObject {
     @Published var tick = 0
+}
+
+extension AppDelegate {
+    /// Lossless commands copy streams, so joined clips must share one format.
+    func ensureMatchingClips(_ p: PlayerWindowController, action: String) -> Bool {
+        guard p.doc.hasMixedSources else { return true }
+        let a = NSAlert()
+        a.messageText = "\(action) can't join clips in different formats."
+        a.informativeText = "The appended clips differ in codec, frame size, frame rate or audio format, so they can't be joined without re-encoding. Use an Export command (for example File › Export to MPEG-4) instead."
+        a.runModal()
+        return false
+    }
 }

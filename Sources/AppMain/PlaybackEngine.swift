@@ -88,8 +88,10 @@ final class StreamDecoder {
 struct PlaybackSnapshot: @unchecked Sendable {
     var edit: EditState
     var sources: [UUID: SourceMedia]
-    var videoStream: Int?
-    var audioStream: Int?
+    /// Video and audio stream per clip (appended clips may number their streams differently).
+    var videoStreams: [UUID: Int]
+    var audioStreams: [UUID: Int]
+    var hasAudio: Bool { !audioStreams.isEmpty || sources.values.contains { $0.companionAudio != nil } }
     var audioMode: AudioMixMode
     var displaySize: CGSize?
 }
@@ -172,10 +174,10 @@ final class PlaybackEngine {
     }
 
     nonisolated private func videoDecoder(for source: SourceMedia, _ snap: PlaybackSnapshot) -> StreamDecoder? {
-        let key = "\(snap.videoStream ?? -1)-\(Int(snap.displaySize?.width ?? 0))x\(Int(snap.displaySize?.height ?? 0))"
+        let key = "\(snap.videoStreams.sorted { $0.key.uuidString < $1.key.uuidString }.map { "\($0.value)" }.joined(separator: ","))-\(Int(snap.displaySize?.width ?? 0))x\(Int(snap.displaySize?.height ?? 0))"
         if key != decoderKey { videoDecoders.removeAll(); decoderKey = key }
         if let d = videoDecoders[source.id] { return d }
-        guard let v = snap.videoStream else { return nil }
+        guard let v = snap.videoStreams[source.id] else { return nil }
         let d = StreamDecoder(source: source, video: v, audio: nil, outputSize: snap.displaySize, audioMode: snap.audioMode)
         videoDecoders[source.id] = d
         return d
@@ -218,7 +220,7 @@ final class PlaybackEngine {
         if rate == 1 {
             let startHost = CACurrentMediaTime() + 0.25
             clock.set(timeline: t, host: startHost, rate: 1)
-            if snap.audioStream != nil || snap.sources.values.contains(where: { $0.companionAudio != nil }) {
+            if snap.hasAudio {
                 if !engine.isRunning { try? engine.start() }
                 player.play(at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: startHost)))
                 audioQueue.async { self.audioLoop(from: t, snap, generation: g) }
@@ -312,7 +314,7 @@ final class PlaybackEngine {
 
     nonisolated private func audioDecoder(for source: SourceMedia, _ snap: PlaybackSnapshot) -> StreamDecoder? {
         if let d = audioDecoders[source.id] { return d }
-        let d = StreamDecoder(source: source, video: nil, audio: snap.audioStream, outputSize: nil, audioMode: snap.audioMode)
+        let d = StreamDecoder(source: source, video: nil, audio: snap.audioStreams[source.id], outputSize: nil, audioMode: snap.audioMode)
         audioDecoders[source.id] = d
         return d
     }

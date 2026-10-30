@@ -118,21 +118,68 @@ final class PlayerDocument: ObservableObject {
     // MARK: Keyframes
 
     var primaryIndex: StreamIndex? { indexes[primary.id] }
+    private var indexing = Set<UUID>()
 
-    /// Builds the keyframe index of the selected video stream in the background.
+    // MARK: Appended clips
+
+    /// Video and audio stream of a clip matching the tracks chosen for the primary clip
+    /// (same position among its video / audio streams; clips may number their streams differently).
+    func streams(for id: UUID) -> (video: Int?, audio: Int?) {
+        if id == primary.id { return (videoStream, primary.companionAudio != nil ? nil : audioStream) }
+        guard let src = sources[id] else { return (nil, nil) }
+        let vPos = primary.info.videoStreams.firstIndex { $0.index == videoStream } ?? 0
+        let aPos = primary.info.audioStreams.firstIndex { $0.index == audioStream } ?? 0
+        let vs = src.info.videoStreams, auds = src.info.audioStreams
+        let v = vs.indices.contains(vPos) ? vs[vPos].index : vs.first?.index
+        let a = src.companionAudio != nil ? nil : (auds.indices.contains(aPos) ? auds[aPos].index : auds.first?.index)
+        return (v, a)
+    }
+
+    /// Appends a clip to the end of the stream (undoable). The trim window grows to show it.
+    func append(_ src: SourceMedia) {
+        sources[src.id] = src
+        let start = edit.duration
+        history.apply("Append Clip") { e in
+            e.paste([Segment(sourceID: src.id, start: 0, end: src.info.duration)], at: e.duration)
+            e.window = e.window.lowerBound...e.duration
+        }
+        cancelSelection()
+        position = start
+        buildIndex()
+    }
+
+    /// True when the clips used by the edit differ in format, so they can be joined only by re-encoding.
+    var hasMixedSources: Bool {
+        let used = Set(edit.segments.map(\.sourceID)).compactMap { sources[$0] }
+        guard used.count > 1 else { return false }
+        func signature(_ s: SourceMedia) -> String {
+            let st = streams(for: s.id)
+            let v = s.info.streams.first { $0.index == st.video }
+            let a = s.companionInfo?.audioStreams.first ?? s.info.streams.first { $0.index == st.audio }
+            return [v?.codec ?? "-", "\(v?.width ?? 0)x\(v?.height ?? 0)", String(format: "%.3f", v?.frameRate ?? 0),
+                    a?.codec ?? "-", "\(a?.sampleRate ?? 0)", "\(a?.channels ?? 0)"].joined(separator: "/")
+        }
+        return Set(used.map(signature)).count > 1
+    }
+
+    /// Builds keyframe indexes for every local clip that doesn't have one yet.
     func buildIndex() {
-        guard indexes[primary.id] == nil, let v = videoStream ?? primary.info.audioStreams.first?.index, !primary.isRemote else { return }
-        let spec = primary.inputSpec
-        let id = primary.id
-        indexingProgress = 0
-        Task.detached(priority: .utility) {
-            let idx = try? StreamIndex.build(input: spec, streamIndex: v) { p in
-                Task { @MainActor in self.indexingProgress = p }
-                return true
-            }
-            await MainActor.run {
-                if let idx { self.indexes[id] = idx }
-                self.indexingProgress = nil
+        for src in sources.values where indexes[src.id] == nil && !src.isRemote && !indexing.contains(src.id) {
+            guard let v = streams(for: src.id).video ?? src.info.audioStreams.first?.index else { continue }
+            indexing.insert(src.id)
+            let spec = src.inputSpec, id = src.id
+            let isPrimary = id == primary.id
+            if isPrimary { indexingProgress = 0 }
+            Task.detached(priority: .utility) {
+                let idx = try? StreamIndex.build(input: spec, streamIndex: v) { p in
+                    if isPrimary { Task { @MainActor in self.indexingProgress = p } }
+                    return true
+                }
+                await MainActor.run {
+                    if let idx { self.indexes[id] = idx }
+                    self.indexing.remove(id)
+                    if isPrimary { self.indexingProgress = nil }
+                }
             }
         }
     }
@@ -166,6 +213,11 @@ final class PlayerDocument: ObservableObject {
         else if allAudio { audio = availableAudio.map(\.index) }
         else { audio = audioStream.map { [$0] } ?? [] }
         var req = RenderRequest(sources: Array(sources.values), segments: segs, videoStream: videoStream, audioStreams: audio)
+        // Appended clips: their own stream numbers for the chosen tracks.
+        for id in Set(segs.map(\.sourceID)) where id != primary.id {
+            let st = streams(for: id)
+            req.selections[id] = StreamSelection(video: st.video, audio: st.audio.map { [$0] } ?? [])
+        }
         req.audioMix = audioMode
         req.fixDataBreaks = fixTimecodeBreaks
         req.applyPreferences()

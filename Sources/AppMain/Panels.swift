@@ -377,24 +377,6 @@ struct OpenURLView: View {
     }
 }
 
-// MARK: - Guide
-
-struct GuideView: View {
-    var body: some View {
-        ScrollView {
-            Text(Self.text).textSelection(.enabled).padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    static var text: AttributedString {
-        if let url = Bundle.main.url(forResource: "Guide", withExtension: "md"), let s = try? String(contentsOf: url, encoding: .utf8),
-           let a = try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            return a
-        }
-        return AttributedString("The guide is in README.md next to the application's source.")
-    }
-}
-
 // MARK: - Add Files to batch
 
 @MainActor

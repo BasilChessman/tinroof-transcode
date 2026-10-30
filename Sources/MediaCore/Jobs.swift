@@ -82,6 +82,13 @@ public enum JobKind: Codable, Hashable, Sendable {
     }
 }
 
+/// The tracks to use from one clip.
+public struct StreamSelection: Codable, Hashable, Sendable {
+    public var video: Int?
+    public var audio: [Int]
+    public init(video: Int?, audio: [Int]) { self.video = video; self.audio = audio }
+}
+
 /// Everything ffmpeg needs to know about the material to process.
 public struct RenderRequest: Codable, Hashable, Sendable {
     public var sources: [SourceMedia]
@@ -98,6 +105,11 @@ public struct RenderRequest: Codable, Hashable, Sendable {
     public var watermarkImage: URL?
     /// Time of the frame to export (frame exporter only).
     public var frameTime: Double?
+    /// Streams to use for clips other than the primary one (appended clips may number streams differently).
+    public var selections: [UUID: StreamSelection] = [:]
+
+    public func videoStream(for id: UUID) -> Int? { selections[id].map(\.video) ?? videoStream }
+    public func audioStreams(for id: UUID) -> [Int] { selections[id]?.audio ?? audioStreams }
 
     public init(sources: [SourceMedia], segments: [Segment], videoStream: Int?, audioStreams: [Int]) {
         self.sources = sources
