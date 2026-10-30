@@ -28,6 +28,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/${APP_NAME}"
 cp Resources/Guide.md "$OUT/Contents/Resources/Guide.md"
+cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 if [ -n "$FFMPEG" ]; then
   mkdir -p "$OUT/Contents/Resources/bin"
   cp "$FFMPEG" "$OUT/Contents/Resources/bin/ffmpeg"
@@ -50,6 +51,7 @@ cat > "$OUT/Contents/Info.plist" <<EOF
   <key>CFBundleExecutable</key><string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>LSMinimumSystemVersion</key><string>${MIN_MACOS}</string>
