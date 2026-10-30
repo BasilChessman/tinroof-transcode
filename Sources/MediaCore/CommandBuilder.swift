@@ -537,7 +537,10 @@ public enum CommandBuilder {
         case .aac: a += ["-c:a", "aac_at", "-b:a", "\(s.audioBitrateKbps)k"]
         case .pcm: a += ["-c:a", container == "aiff" ? "pcm_s16be" : "pcm_s16le"]
         case .pcm24: a += ["-c:a", container == "aiff" ? "pcm_s24be" : "pcm_s24le"]
-        case .opus: a += ["-c:a", "libopus", "-b:a", "\(s.audioBitrateKbps)k"]
+        case .opus:
+            a += ["-c:a", "libopus", "-b:a", "\(s.audioBitrateKbps)k"]
+            // Surround Opus needs an explicit channel mapping.
+            if s.audioChannels == 0 { a += ["-mapping_family", "1"] }
         case .aiff: a += ["-c:a", "pcm_s16be"]
         case .wav: a += ["-c:a", "pcm_s16le"]
         case .alac: a += ["-c:a", "alac"]
@@ -623,6 +626,8 @@ public enum CommandBuilder {
             if mixArgs.count == 2 { f.append(mixArgs[1]) }
             if s.adjustments.volumeDB != 0 { f.append(String(format: "volume=%.2fdB", s.adjustments.volumeDB)) }
             if s.adjustments.automaticVolume { f.append("dynaudnorm") }
+            // Opus accepts only standard layouts (e.g. "5.1", not DVD AC3's "5.1(side)").
+            if s.audioFormat == .opus && channels == 0 { f.append("aformat=channel_layouts=mono|stereo|3.0|quad|5.0|5.1|6.1|7.1") }
             graph.append("[\(label)]" + (f.isEmpty ? "anull" : f.joined(separator: ",")) + "[aout]")
             audioFilter = ["-map", "[aout]"]
         } else if wantsAudio, let label = aLabel {

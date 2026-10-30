@@ -206,6 +206,12 @@ final class IntegrationTests: XCTestCase {
             let infos = run(JobSpec(kind: .export(s), request: request(src, seg, allAudio: false), output: out.appendingPathComponent("mix-\(mode.rawValue).aiff")))
             XCTAssertEqual(infos.first?.audioStreams.first?.channels, 2, "\(mode)")
         }
+        // 5.1 kept as surround in Opus.
+        var surround = ExportSettings(kind: .audio)
+        surround.audioFormat = .opus
+        surround.audioChannels = 0
+        let sInfo = run(JobSpec(kind: .export(surround), request: request(src, seg, allAudio: false), output: out.appendingPathComponent("surround.opus")))
+        XCTAssertEqual(sInfo.first?.audioStreams.first?.channels, 6)
         for f in [AudioFormat.aac, .mp3, .flac, .wav, .alac, .opus, .ac3, .mp2] {
             var s = ExportSettings(kind: .audio)
             s.audioFormat = f
