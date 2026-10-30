@@ -18,6 +18,7 @@ swift build                       # debug build
 ./scripts/make_test_media.sh      # generates TestMedia/ (MPEG-2/AC3 5.1, H.264 TS, split VOBs)
 swift test                        # 15 tests: model + real ffmpeg conversions for every target and codec
 ./scripts/build_app.sh             # build/TinRoof Transcode.app
+./scripts/make_screenshots.sh       # refresh docs/screenshots and the guide's images after UI changes
 ```
 
 Optional ffmpeg with Hap encoding (Homebrew's ffmpeg lacks libsnappy):

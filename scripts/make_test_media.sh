@@ -11,6 +11,8 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=720x576:rate=2
 # 1080p H.264 + AAC transport stream.
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=30000/1001" \
   -f lavfi -i "sine=frequency=300:sample_rate=48000" -t 15 -c:v libx264 -g 30 -c:a aac -f mpegts sample_h264.ts
+# A 9:16 portrait phone-style clip.
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1080x1920:rate=30" -f lavfi -i "sine=frequency=500:sample_rate=48000" -t 8 -c:v libx264 -c:a aac sample_portrait.mp4
 # A short H.264 clip with no audio track.
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc=size=640x480:rate=30" -t 3 -c:v libx264 -an sample_silent.mp4
 # A DVD title split into two VOB files at a byte boundary (timestamps continue across files).

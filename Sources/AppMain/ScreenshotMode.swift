@@ -80,9 +80,10 @@ enum ScreenshotMode {
             let model = app.showExporter(kind: .quickTime, player: p)
             model?.settings.adjustments.watermark = "TinRoof Transcode"
             try? await Task.sleep(for: .milliseconds(800))
-            window(containing: "Exporter")?.setContentSize(NSSize(width: 860, height: 900))
+            window(containing: "Exporter")?.setContentSize(NSSize(width: 1040, height: 760))
             model?.makePreview()
-            for _ in 0..<100 where model?.preview == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .milliseconds(700))   // let the debounced re-render start too
+            for _ in 0..<150 where model?.previewBusy == true || model?.preview == nil { try? await Task.sleep(for: .milliseconds(100)) }
             print(model?.preview == nil ? "preview: none" : "preview: rendered")
             try? await Task.sleep(for: .milliseconds(600))
             capture(window(containing: "Exporter"), to: dir.appendingPathComponent("exporter.png"))
@@ -227,5 +228,86 @@ enum ScreenshotMode {
             try? data.write(to: url)
             print("wrote \(url.lastPathComponent)")
         }
+    }
+}
+
+/// Exercises every exporter's Preview on real clips and reports whether a non-black image came back.
+///   TRT_PREVIEW_TEST=1 TRT_SAMPLE=/path/a.mpg[:/path/b.ts] "TinRoof Transcode.app/Contents/MacOS/TinRoof Transcode"
+@MainActor
+enum PreviewTest {
+    static func run(samples: [String]) {
+        let app = AppDelegate.shared
+        Task { @MainActor in
+            for sample in samples {
+                app.openSource([URL(fileURLWithPath: sample)])
+                var player: PlayerWindowController?
+                for _ in 0..<100 { player = app.players.last; if player?.doc.primary.locations.first?.path == sample { break }; player = nil; try? await Task.sleep(for: .milliseconds(100)) }
+                guard let p = player else { print("preview-test: could not open \(sample)"); continue }
+                try? await Task.sleep(for: .seconds(1))
+                p.move(to: 5, extend: false)
+                try? await Task.sleep(for: .milliseconds(600))
+                for kind in [ExporterKind.frame, .quickTime, .mpeg4, .avi, .matroska, .dv, .mpeg2] {
+                    guard let m = app.showExporter(kind: kind, player: p) else { print("preview-test: \(kind.rawValue): exporter did not open"); continue }
+                    // No click: the preview should render by itself when the exporter opens.
+                    for _ in 0..<150 where m.preview == nil && m.previewError == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                    let shown = m.preview.map { meanBrightness($0) }
+                    print("preview-test: \((sample as NSString).lastPathComponent) \(kind.rawValue): " +
+                          (shown.map { String(format: "image, mean brightness %.2f", $0) } ?? "NO IMAGE"))
+                    if let shots = ProcessInfo.processInfo.environment["TRT_PREVIEW_SHOTS"], [ExporterKind.frame, .quickTime, .dv].contains(kind) {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        ScreenshotMode.capture(ScreenshotMode.window(containing: "Export"), to: URL(fileURLWithPath: shots)
+                            .appendingPathComponent("\((sample as NSString).lastPathComponent)-\(kind.rawValue.replacingOccurrences(of: " ", with: "")).png"))
+                    }
+                    m.close?()
+                }
+                // A settings change re-renders by itself.
+                if let m = app.showExporter(kind: .quickTime, player: p) {
+                    for _ in 0..<150 where m.preview == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                    let before = m.preview.map(meanBrightness) ?? -1
+                    m.settings.adjustments.brightness = 90
+                    try? await Task.sleep(for: .milliseconds(300))
+                    for _ in 0..<150 where m.previewBusy || (m.preview.map(meanBrightness) ?? -1) == before { try? await Task.sleep(for: .milliseconds(100)) }
+                    print(String(format: "preview-test: settings change re-rendered: brightness %.2f -> %.2f", before, m.preview.map(meanBrightness) ?? -1))
+                    m.close?()
+                }
+                // Playhead at the very end of the clip.
+                p.move(to: p.doc.window.upperBound, extend: false)
+                try? await Task.sleep(for: .milliseconds(500))
+                if let m = app.showExporter(kind: .frame, player: p) {
+                    for _ in 0..<150 where m.preview == nil && m.previewError == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                    print("preview-test: at end of clip, Frame: " + (m.preview.map { String(format: "image, mean brightness %.2f", meanBrightness($0)) } ?? "NO IMAGE (\(m.previewError ?? "-"))"))
+                    m.close?()
+                }
+            }
+            // Playhead inside a clip appended to the first one (different stream numbering).
+            if samples.count > 1, let p = app.players.first(where: { $0.doc.primary.locations.first?.path == samples[0] }) {
+                p.appendClips([URL(fileURLWithPath: samples[1])])
+                for _ in 0..<80 where p.doc.edit.segments.count < 2 { try? await Task.sleep(for: .milliseconds(100)) }
+                p.move(to: p.doc.edit.segmentStarts.last! + 3, extend: false)
+                try? await Task.sleep(for: .milliseconds(500))
+                for kind in [ExporterKind.frame, .quickTime] {
+                    guard let m = app.showExporter(kind: kind, player: p) else { continue }
+                    for _ in 0..<150 where m.preview == nil && m.previewError == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                    print("preview-test: inside appended clip, \(kind.rawValue): " + (m.preview.map { String(format: "image, mean brightness %.2f", meanBrightness($0)) } ?? "NO IMAGE (\(m.previewError ?? "-"))"))
+                    m.close?()
+                }
+            }
+            for line in app.logStore.lines where line.contains("Preview failed") { print("preview-test log: \(line)") }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Average luminance 0…1 of the image as it would be drawn.
+    static func meanBrightness(_ image: NSImage) -> Double {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let ctx = CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 128,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return -1 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 32, height: 32))
+        guard let data = ctx.data else { return -1 }
+        let px = data.bindMemory(to: UInt8.self, capacity: 32 * 32 * 4)
+        var sum = 0.0
+        for i in 0..<(32 * 32) { sum += (Double(px[i * 4]) + Double(px[i * 4 + 1]) + Double(px[i * 4 + 2])) / 3 }
+        return sum / Double(32 * 32) / 255
     }
 }

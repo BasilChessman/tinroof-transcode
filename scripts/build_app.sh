@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="${APP_NAME:-TinRoof Transcode}"
 BUNDLE_ID="${BUNDLE_ID:-com.tinroof.transcode}"
-VERSION="${VERSION:-0.1.1}"
+VERSION="${VERSION:-0.1.2}"
 OUT="${OUT:-build/${APP_NAME}.app}"
 MIN_MACOS="${MIN_MACOS:-14.0}"
 

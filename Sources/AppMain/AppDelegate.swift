@@ -62,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if FFmpegLocator.find() == nil {
             log(MediaError.ffmpegMissing.localizedDescription)
         }
+        if ProcessInfo.processInfo.environment["TRT_PREVIEW_TEST"] != nil, let s = ProcessInfo.processInfo.environment["TRT_SAMPLE"] {
+            PreviewTest.run(samples: s.split(separator: ":").map(String.init)); return
+        }
         if let dir = ScreenshotMode.directory { ScreenshotMode.run(in: dir); return }
         if !pendingOpen.isEmpty { open(pendingOpen); pendingOpen = [] }
         else if players.isEmpty { showEmptyPlayer() }
@@ -348,7 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let model = ExporterModel(kind: kind, player: player, presets: presets)
         let view = ExporterView(model: model)
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 640), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         w.title = kind == .frame ? "Export Frame — \(player.doc.title)" : "\(kind.rawValue) Exporter — \(player.doc.title)"
         w.contentView = NSHostingView(rootView: view)
         w.isReleasedWhenClosed = false

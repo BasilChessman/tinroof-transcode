@@ -33,7 +33,7 @@ ROOT="$(pwd)"
 
 APP_NAME="${APP_NAME:-TinRoof Transcode}"
 BUNDLE_ID="${BUNDLE_ID:-com.tinroof.transcode}"
-VERSION="${VERSION:-0.1.1}"
+VERSION="${VERSION:-0.1.2}"
 MIN_MACOS="${MIN_MACOS:-14.0}"
 ARCH="${ARCH:-arm64}"
 JOBS="$(sysctl -n hw.ncpu)"

@@ -475,7 +475,7 @@ enum BatchAddFlow {
                 if let v = sources.first?.info.videoStreams.first, kind != .audio {
                     model.settings.frameSize = CommandBuilder.defaultFrameSize(for: model.settings, source: v)
                 }
-                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 620), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
                 w.title = "\(kind.rawValue) Exporter — \(sources.count) file(s)"
                 w.contentView = NSHostingView(rootView: ExporterView(model: model))
                 w.isReleasedWhenClosed = false

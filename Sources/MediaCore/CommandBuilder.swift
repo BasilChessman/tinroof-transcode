@@ -247,7 +247,10 @@ public enum CommandBuilder {
     }
 
     /// Builds the video filter chain. `sourceLabel` and `outputLabel` are filtergraph pad names.
-    public static func videoFilterChain(_ s: ExportSettings, source v: StreamInfo, watermarkInput: Int?, sourceLabel: String, outputLabel: String) -> (graph: String, geometry: Geometry) {
+    /// `outputPixelFormat` overrides the codec's pixel format (still frames are rendered as RGB).
+    public static func videoFilterChain(_ s: ExportSettings, source v: StreamInfo, watermarkInput: Int?, sourceLabel: String, outputLabel: String,
+                                        outputPixelFormat: String? = nil) -> (graph: String, geometry: Geometry) {
+        let outFormat = outputPixelFormat ?? pixelFormat(for: s)
         var f: [String] = []
         var w = Double(v.width), h = Double(v.height)
         var dar = v.displayAspect
@@ -375,12 +378,12 @@ public enum CommandBuilder {
             f.append(String(format: "eq=brightness=%.3f:contrast=%.3f:saturation=%.3f", b, c, sat))
         }
         f.append(String(format: "setsar=%.6f", sampleAspect))
-        f.append("format=\(pixelFormat(for: s))")
+        f.append("format=\(outFormat)")
 
         var graph = "[\(sourceLabel)]" + f.joined(separator: ",")
         if let wm = watermarkInput {
             let margin = max(8, outH / 30)
-            graph += "[pre];[pre][\(wm):v]overlay=x=main_w-overlay_w-\(margin):y=main_h-overlay_h-\(margin):eof_action=repeat,format=\(pixelFormat(for: s))"
+            graph += "[pre];[pre][\(wm):v]overlay=x=main_w-overlay_w-\(margin):y=main_h-overlay_h-\(margin):eof_action=repeat:format=auto,format=\(outFormat)"
         }
         graph += "[\(outputLabel)]"
         return (graph, Geometry(width: outW, height: outH, sampleAspect: sampleAspect, interlaced: interlaced))
@@ -728,18 +731,30 @@ public enum CommandBuilder {
         return FFmpegPlan(commands: commands, outputs: [output], duration: req.duration, temporaryFiles: temps)
     }
 
-    static func exportFrame(_ s: ExportSettings, _ req: RenderRequest, output: URL) throws -> FFmpegPlan {
-        guard let src = req.primary, let v = req.videoStream, let info = src.info.streams.first(where: { $0.index == v }) else {
+    /// One still frame. With a movie exporter's settings (as for its preview) the frame keeps that
+    /// exporter's geometry, e.g. DV's 720 × 576 non-square frame.
+    public static func exportFrame(_ s: ExportSettings, _ req: RenderRequest, output: URL) throws -> FFmpegPlan {
+        // The frame's clip may be an appended one with its own stream numbering.
+        guard let src = req.primary,
+              let v = req.videoStream(for: src.id) ?? src.info.videoStreams.first?.index,
+              let info = src.info.streams.first(where: { $0.index == v }) else {
             throw MediaError.unsupported("The stream has no video track.")
         }
-        let t = req.frameTime ?? req.segments.first?.start ?? 0
-        var args = commonPrefix + ["-ss", Timecode.ffmpeg(t), "-i", src.inputSpec]
+        // Keep the requested time inside the video (audio may run longer than the picture).
+        var t = req.frameTime ?? req.segments.first?.start ?? 0
+        let frame = info.frameRate > 0 ? 1 / info.frameRate : 0.04
+        let videoEnd = [src.info.duration, info.duration].filter { $0 > 0 }.min() ?? 0
+        if videoEnd > 0 { t = min(t, max(0, videoEnd - 3 * frame)) }
+        t = max(0, t)
+        // Two-stage seek: a fast seek to 2 s before the frame, then decode forward to it. A single
+        // fast seek straight to the frame can find nothing near the end of some streams.
+        let pre = max(0, t - 2)
+        var args = commonPrefix + ["-ss", Timecode.ffmpeg(pre), "-i", src.inputSpec]
         var wmIndex: Int?
         if let wm = req.watermarkImage { args += ["-i", wm.path]; wmIndex = 1 }
-        var settings = s
-        settings.videoCodec = .png // rgb24 output
-        let chain = videoFilterChain(settings, source: info, watermarkInput: wmIndex, sourceLabel: "0:\(v)", outputLabel: "vout")
-        args += ["-filter_complex", chain.graph, "-map", "[vout]", "-frames:v", "1", "-update", "1"]
+        let chain = videoFilterChain(s, source: info, watermarkInput: wmIndex, sourceLabel: "0:\(v)", outputLabel: "vout", outputPixelFormat: "rgb24")
+        // The second -ss is an output option (after -map): placed before a later -i it would seek that input instead.
+        args += ["-filter_complex", chain.graph, "-map", "[vout]", "-ss", Timecode.ffmpeg(t - pre), "-frames:v", "1", "-update", "1"]
         switch s.frameFormat {
         case .jpeg: args += ["-c:v", "mjpeg", "-q:v", "2", "-pix_fmt", "yuvj444p"]
         case .png: args += ["-c:v", "png"]

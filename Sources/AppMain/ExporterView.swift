@@ -12,9 +12,18 @@ final class ExporterModel: ObservableObject {
     var batchFolder: URL?
     var close: (() -> Void)?
 
-    @Published var settings: ExportSettings { didSet { if oldValue.kind == settings.kind { Self.lastSettings[kind] = settings } } }
+    @Published var settings: ExportSettings {
+        didSet {
+            if oldValue.kind == settings.kind { Self.lastSettings[kind] = settings }
+            if oldValue != settings { schedulePreview() }
+        }
+    }
     @Published var preview: NSImage?
     @Published var previewBusy = false
+    /// Why the last preview could not be rendered, shown in the preview pane.
+    @Published var previewError: String?
+    private var previewGeneration = 0
+    private var pendingPreview: Task<Void, Never>?
     @Published var presetList: [Preset] = []
     @Published var selectedPreset: UUID?
     @Published var customWidth = ""
@@ -28,9 +37,16 @@ final class ExporterModel: ObservableObject {
         self.player = player
         self.presets = presets
         var s = Self.lastSettings[kind] ?? ExportSettings.defaults(for: kind)
-        if Self.lastSettings[kind] == nil, let v = player?.doc.videoInfo {
-            s.frameSize = kind == .frame ? nil : CommandBuilder.defaultFrameSize(for: s, source: v)
-            if !v.fieldOrder.isInterlaced { s.interlacedScaling = false }
+        if let v = player?.doc.videoInfo {
+            if Self.lastSettings[kind] == nil {
+                s.frameSize = kind == .frame ? nil : CommandBuilder.defaultFrameSize(for: s, source: v)
+                if !v.fieldOrder.isInterlaced { s.interlacedScaling = false }
+                s.dvWidescreen = v.displayAspect > 1.5          // DV: 16:9 for widescreen sources
+            } else if let fs = s.frameSize, !s.broadcastGeometry,
+                      (Double(fs.width) >= Double(fs.height)) != (v.displayAspect >= 1) {
+                // Remembered size has the other orientation (e.g. 16:9 settings, 9:16 clip): fit this clip instead.
+                s.frameSize = CommandBuilder.defaultFrameSize(for: s, source: v)
+            }
         }
         if !EncoderAvailability.available().contains(s.videoCodec.encoderName),
            let first = kind.videoCodecs.first(where: { EncoderAvailability.isAvailable($0) }) {
@@ -129,12 +145,48 @@ final class ExporterModel: ObservableObject {
         settings.frameSize?.height ?? source?.height ?? 480
     }
 
+    /// Display aspect (width ÷ height) of the exported picture, used to shape the preview pane.
+    var previewAspect: CGFloat {
+        guard let v = source, v.height > 0 else { return 16 / 9 }
+        let s = settings
+        var a: Double
+        if s.broadcastGeometry {
+            // DV / DVD: fixed 720-wide frames shown at 16:9 or 4:3.
+            let wide = s.kind == .dv ? s.dvWidescreen : v.displayAspect > 1.55
+            a = wide ? 16 / 9 : 4 / 3
+        } else if let fs = s.frameSize {
+            var w = Double(fs.width), h = Double(fs.height)
+            if s.crop.isActive && s.crop.mode == .destination {
+                w -= Double(s.crop.left + s.crop.right)
+                h -= Double(s.crop.top + s.crop.bottom)
+            }
+            a = h > 0 ? w / h : 16 / 9
+        } else {
+            // Unscaled: the source's own shape, turned by a quarter-turn rotation.
+            a = v.displayAspect
+            if s.rotation == .cw90 || s.rotation == .ccw90 { a = 1 / a }
+        }
+        return CGFloat(max(0.25, min(4, a)))
+    }
+
+    /// Re-renders the preview shortly after settings stop changing.
+    func schedulePreview() {
+        guard player != nil else { return }
+        pendingPreview?.cancel()
+        pendingPreview = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            self.makePreview()
+        }
+    }
+
     /// Renders the current frame through the complete filter chain.
     func makePreview() {
         guard let p = player, let loc = p.doc.edit.locate(p.doc.position) else { return }
         var req = p.doc.renderRequest(lossless: false, allAudio: false)
         req.segments = [Segment(sourceID: loc.sourceID, start: loc.sourceTime, end: loc.sourceTime + 1)]
         req.sources = Array(p.doc.sources.values)
+        req.selections[loc.sourceID] = StreamSelection(video: p.doc.streams(for: loc.sourceID).video, audio: [])
         req.frameTime = loc.sourceTime
         req.watermarkImage = watermark(height: outputHeight())
         var s = settings
@@ -142,21 +194,27 @@ final class ExporterModel: ObservableObject {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(UUID().uuidString).png")
         let spec = JobSpec(kind: .export(s), request: req, output: out)
         previewBusy = true
+        previewGeneration += 1
+        let generation = previewGeneration
         Task.detached {
             var image: NSImage?
             var failure: String?
             if let ffmpeg = FFmpegLocator.find(), let plan = try? Self.framePlan(spec) {
                 let proc = FFmpegProcess(plan: plan, executable: ffmpeg)
                 if case .failed(let m) = proc.run() { failure = m }
-                image = NSImage(contentsOf: out)
+                // Load the pixels now: the file is deleted straight after.
+                image = (try? Data(contentsOf: out)).flatMap(NSImage.init(data:))
+                if image == nil, failure == nil { failure = "ffmpeg produced no frame at this position." }
                 try? FileManager.default.removeItem(at: out)
             } else {
                 failure = "ffmpeg is not available."
             }
             if let wm = req.watermarkImage { try? FileManager.default.removeItem(at: wm) }
             await MainActor.run {
-                self.preview = image
+                guard generation == self.previewGeneration else { return }   // a newer preview is on its way
                 self.previewBusy = false
+                if let image { self.preview = image }
+                self.previewError = failure.map { $0.split(separator: "\n").last.map(String.init) ?? $0 }
                 if let failure { AppDelegate.shared.log("Preview failed: \(failure)") }
             }
         }
@@ -164,14 +222,8 @@ final class ExporterModel: ObservableObject {
 
     nonisolated static func framePlan(_ spec: JobSpec) throws -> FFmpegPlan {
         guard case .export(let s) = spec.kind else { throw MediaError.failed("") }
-        var f = s
-        if f.frameSize == nil, let v = spec.request.primary?.info.streams.first(where: { $0.index == spec.request.videoStream }) {
-            f.frameSize = CommandBuilder.defaultFrameSize(for: s, source: v)
-        }
-        f.kind = .frame
-        var fs = spec
-        fs.kind = .export(f)
-        return try CommandBuilder.plan(for: fs)
+        // Render with this exporter's own settings, so the preview matches its geometry exactly.
+        return try CommandBuilder.exportFrame(s, spec.request, output: spec.output)
     }
 
     func make() {
@@ -194,6 +246,7 @@ final class ExporterModel: ObservableObject {
         if kind == .frame, let loc = p.doc.edit.locate(p.doc.position) {
             req.frameTime = loc.sourceTime
             req.segments = [Segment(sourceID: loc.sourceID, start: loc.sourceTime, end: loc.sourceTime + 1)]
+            req.selections[loc.sourceID] = StreamSelection(video: p.doc.streams(for: loc.sourceID).video, audio: [])
         }
         req.watermarkImage = watermark(height: outputHeight())
         let suffix = kind == .frame ? " " + Timecode.format(p.doc.position).replacingOccurrences(of: ":", with: "-") : ""
@@ -221,26 +274,37 @@ struct ExporterView: View {
                 if kind != .frame && model.batchSources == nil { presetsSection }
             }
             .formStyle(.grouped)
-            .frame(minWidth: 430)
+            .frame(minWidth: 430, idealWidth: 460, maxWidth: 520)
             if hasVideo {
                 VStack(spacing: 8) {
                     ZStack {
                         Rectangle().fill(Color.black)
-                        if let img = model.preview { Image(nsImage: img).resizable().aspectRatio(contentMode: .fit) }
-                        if model.previewBusy { ProgressView() }
-                        if model.preview == nil && !model.previewBusy {
-                            Text("Click Preview to render the current frame with these settings").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+                        // Shown at the output's display shape (DV and DVD frames use non-square pixels).
+                        if let img = model.preview { Image(nsImage: img).resizable() }
+                        if model.previewBusy {
+                            VStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                if model.preview == nil { Text("Rendering preview…").font(.caption).foregroundStyle(.white.opacity(0.7)) }
+                            }
+                        } else if let error = model.previewError {
+                            Text("Preview unavailable: \(error)").font(.caption).foregroundStyle(.orange)
+                                .multilineTextAlignment(.center).padding()
                         }
                     }
-                    .frame(minWidth: 260, minHeight: 180)
-                    Button("Preview") { model.makePreview() }.disabled(model.player == nil || model.previewBusy)
+                    // The pane takes the shape of the output (16:9, 9:16, 4:3…), never taller than 460 pt.
+                    .aspectRatio(model.previewAspect, contentMode: .fit)
+                    .frame(maxWidth: 460 * model.previewAspect)   // width-limited so tall (9:16) previews stay ≤ 460 pt high
+                    Text("The current frame with these settings applied. It updates as you change them.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("Refresh Preview") { model.makePreview() }.disabled(model.player == nil || model.previewBusy)
                     if let est = model.estimatedSize { Text("Estimated size: \(est)").font(.caption).foregroundStyle(.secondary) }
                     Spacer()
                 }
                 .padding()
-                .frame(minWidth: 280)
+                .frame(minWidth: 320, maxWidth: .infinity)
             }
         }
+        .onAppear { if model.player != nil && hasVideo { model.makePreview() } }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Reset All") { model.resetAll() }

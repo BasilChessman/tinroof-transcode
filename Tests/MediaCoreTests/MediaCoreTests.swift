@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import MediaCore
 import CMedia
 
@@ -235,6 +236,41 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(info.duration, 5.5, accuracy: 0.3)
         XCTAssertEqual(info.videoStreams.first?.width, 1024)
         XCTAssertEqual(info.audioStreams.count, 1)
+    }
+
+    func testFrameExportWithWatermarkIsSameFrame() throws {
+        let src = try source("sample_pal_ac3.mpg")
+        var s = ExportSettings(kind: .frame)
+        s.frameFormat = .png
+        func export(_ name: String, watermark: Bool, at t: Double) throws -> NSBitmapImageRep {
+            var req = request(src, [Segment(sourceID: src.id, start: t, end: t + 1)], allAudio: false)
+            req.frameTime = t
+            if watermark { req.watermarkImage = try WatermarkRenderer.render("WATERMARK", frameHeight: 576, directory: out) }
+            let url = out.appendingPathComponent(name)
+            _ = run(JobSpec(kind: .export(s), request: req, output: url))
+            return try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: url)))
+        }
+        let plain = try export("plain.png", watermark: false, at: 4.5)
+        let marked = try export("marked.png", watermark: true, at: 4.5)
+        let other = try export("other.png", watermark: false, at: 9.0)
+        func pixel(_ r: NSBitmapImageRep, _ x: Int, _ y: Int) -> [Int] {
+            let c = r.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            return [c.redComponent, c.greenComponent, c.blueComponent].map { Int($0 * 255) }
+        }
+        // Same frame: the running timecode at the top left matches; a different time does not.
+        var same = true, differs = false
+        for x in stride(from: 6, to: 130, by: 4) { for y in stride(from: 6, to: 40, by: 4) {
+            if pixel(plain, x, y) != pixel(marked, x, y) { same = false }
+            if pixel(plain, x, y) != pixel(other, x, y) { differs = true }
+        } }
+        XCTAssertTrue(same, "watermarked export shows a different frame")
+        XCTAssertTrue(differs, "frames 4.5 s apart should differ")
+        // The watermark changes the lower-right corner.
+        var marks = 0
+        for x in stride(from: plain.pixelsWide - 200, to: plain.pixelsWide - 10, by: 3) { for y in stride(from: plain.pixelsHigh - 50, to: plain.pixelsHigh - 10, by: 3) {
+            if pixel(plain, x, y) != pixel(marked, x, y) { marks += 1 }
+        } }
+        XCTAssertGreaterThan(marks, 20, "watermark missing")
     }
 
     func testFrameExportAndSaveAs() throws {
