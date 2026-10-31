@@ -35,13 +35,15 @@ public final class BatchTask: ObservableObject, Identifiable, @unchecked Sendabl
     public var title: String { spec.title }
 }
 
-/// Queue of conversion tasks. Runs up to `simultaneousTasks` at once.
+/// Queue of conversion tasks. With `simultaneousTasks` at 0 (automatic) it runs as many at once as the
+/// Mac can take (see `JobScheduler`); otherwise up to that number.
 @MainActor
 public final class BatchQueue: ObservableObject {
     @Published public private(set) var tasks: [BatchTask] = []
     @Published public var isProcessing = false
     @Published public var autoStart = false
-    @Published public var simultaneousTasks = 1
+    /// 0 = automatic.
+    @Published public var simultaneousTasks = 0
     /// Script or app run when every task has finished (AppleScript `.scpt`/`.applescript`, shell script, or app).
     @Published public var completionScript: URL?
 
@@ -110,7 +112,17 @@ public final class BatchQueue: ObservableObject {
 
     private func pump() {
         guard isProcessing else { return }
-        while runningCount < max(1, simultaneousTasks), let next = tasks.first(where: { $0.status == .waiting }) {
+        while true {
+            let running = tasks.filter { $0.status.isRunning }.map(\.spec)
+            let waiting = tasks.filter { $0.status == .waiting }
+            let next: BatchTask?
+            if simultaneousTasks > 0 {
+                next = running.count < simultaneousTasks ? waiting.first : nil
+            } else {
+                // Automatic: the first waiting task (in list order) that fits beside the running ones.
+                next = waiting.first { JobScheduler.canStart($0.spec, alongside: running) }
+            }
+            guard let next else { break }
             run(next)
         }
         if runningCount == 0 && !tasks.contains(where: { $0.status == .waiting }) {

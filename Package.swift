@@ -21,7 +21,8 @@ let package = Package(
         .target(
             name: "CMedia",
             dependencies: ["CFFmpeg"],
-            path: "Sources/CMedia"
+            path: "Sources/CMedia",
+            linkerSettings: [.linkedFramework("VideoToolbox"), .linkedFramework("CoreMedia"), .linkedFramework("CoreFoundation")]
         ),
         // Platform-independent model: edit lists, export settings, ffmpeg command
         // construction, jobs, batch queue, presets.

@@ -7,6 +7,8 @@
 #include <libavutil/channel_layout.h>
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
+#include <libavutil/hwcontext.h>
+#include <VideoToolbox/VideoToolbox.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +18,8 @@ struct MCDecoder {
     AVFormatContext *fmt;
     int vidx, aidx;
     AVCodecContext *vctx, *actx;
+    AVFrame *swframe;           // hardware frames copied to system memory
+    int last_hw;                // last video frame came from the Media Engine
 
     struct SwsContext *sws;
     int out_w, out_h;
@@ -57,6 +61,39 @@ static void copy_str(char *dst, size_t cap, const char *src) {
     snprintf(dst, cap, "%s", src);
 }
 
+// ---- Hardware (Media Engine) decoding ----------------------------------------------------
+
+static int g_hardware_decoding = 1;
+void mc_set_hardware_decoding(int enabled) { g_hardware_decoding = enabled; }
+
+// Asks VideoToolbox whether this Mac decodes the codec in hardware.
+static int vt_hardware_supported(enum AVCodecID id) {
+    CMVideoCodecType t;
+    switch (id) {
+        case AV_CODEC_ID_H264: t = kCMVideoCodecType_H264; break;
+        case AV_CODEC_ID_HEVC: t = kCMVideoCodecType_HEVC; break;
+        case AV_CODEC_ID_PRORES: t = kCMVideoCodecType_AppleProRes422; break;
+        case AV_CODEC_ID_MPEG2VIDEO: t = kCMVideoCodecType_MPEG2Video; break;
+        case AV_CODEC_ID_MPEG1VIDEO: t = kCMVideoCodecType_MPEG1Video; break;
+        case AV_CODEC_ID_MPEG4: t = kCMVideoCodecType_MPEG4Video; break;
+        case AV_CODEC_ID_VP9: t = 0x76703039; break;   // 'vp09'
+        case AV_CODEC_ID_AV1: t = 0x61763031; break;   // 'av01'
+        default: return 0;
+    }
+    return VTIsHardwareDecodeSupported(t) ? 1 : 0;
+}
+
+int mc_hardware_decode_supported(const char *codec_name) {
+    const AVCodecDescriptor *desc = codec_name ? avcodec_descriptor_get_by_name(codec_name) : NULL;
+    return desc ? vt_hardware_supported(desc->id) : 0;
+}
+
+static enum AVPixelFormat pick_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *fmts) {
+    for (const enum AVPixelFormat *p = fmts; *p != AV_PIX_FMT_NONE; p++)
+        if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;
+    return avcodec_default_get_format(ctx, fmts);   // not offered for this stream: software
+}
+
 static AVCodecContext *open_codec(MCDecoder *d, int index) {
     if (index < 0) return NULL;
     AVStream *st = d->fmt->streams[index];
@@ -67,6 +104,13 @@ static AVCodecContext *open_codec(MCDecoder *d, int index) {
     avcodec_parameters_to_context(ctx, st->codecpar);
     ctx->pkt_timebase = st->time_base;
     ctx->thread_count = 0; // automatic
+    if (g_hardware_decoding && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && vt_hardware_supported(st->codecpar->codec_id)) {
+        AVBufferRef *dev = NULL;
+        if (av_hwdevice_ctx_create(&dev, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, NULL, NULL, 0) >= 0) {
+            ctx->hw_device_ctx = dev;
+            ctx->get_format = pick_hw_format;
+        }
+    }
     int r = avcodec_open2(ctx, codec, NULL);
     if (r < 0) { set_err(d, "cannot open decoder", r); avcodec_free_context(&ctx); return NULL; }
     return ctx;
@@ -127,6 +171,7 @@ void mc_close(MCDecoder *d) {
     free(d->pcm);
     av_packet_free(&d->pkt);
     av_frame_free(&d->frame);
+    av_frame_free(&d->swframe);
     avformat_close_input(&d->fmt);
     free(d);
 }
@@ -217,6 +262,7 @@ int mc_select_streams(MCDecoder *d, int video_index, int audio_index) {
 
 int mc_selected_video(MCDecoder *d) { return d->vctx ? d->vidx : -1; }
 int mc_selected_audio(MCDecoder *d) { return d->actx ? d->aidx : -1; }
+int mc_last_frame_was_hardware(MCDecoder *d) { return d->last_hw; }
 
 void mc_set_video_output_size(MCDecoder *d, int w, int h) { d->out_w = w; d->out_h = h; }
 void mc_set_audio_mode(MCDecoder *d, MCAudioMode mode) { d->audio_mode = mode; }
@@ -248,6 +294,16 @@ static double frame_seconds(MCDecoder *d, AVFrame *f, AVStream *st) {
 
 static int emit_video(MCDecoder *d, MCFrame *out) {
     AVFrame *f = d->frame;
+    // Media Engine frames live in GPU memory: copy them to system memory for scaling.
+    d->last_hw = f->format == AV_PIX_FMT_VIDEOTOOLBOX;
+    if (d->last_hw) {
+        if (!d->swframe) d->swframe = av_frame_alloc();
+        av_frame_unref(d->swframe);
+        int tr = av_hwframe_transfer_data(d->swframe, f, 0);
+        if (tr < 0) { set_err(d, "cannot read hardware frame", tr); return -1; }
+        av_frame_copy_props(d->swframe, f);
+        f = d->swframe;
+    }
     AVStream *st = d->fmt->streams[d->vidx];
     int w = d->out_w > 0 ? d->out_w : f->width;
     int h = d->out_h > 0 ? d->out_h : f->height;

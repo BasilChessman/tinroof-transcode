@@ -103,6 +103,9 @@ public enum VideoCodec: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Encodes on Apple's Media Engine.
+    public var isHardwareEncoder: Bool { [.h264Hardware, .hevcHardware, .proResHardware].contains(self) }
+
     public var supportsMultiPass: Bool { [.h264, .hevc, .mpeg4Part2, .mpeg2, .vp9].contains(self) }
     public var supportsBFrames: Bool { [.h264, .hevc, .h264Hardware, .hevcHardware, .mpeg4Part2, .mpeg2].contains(self) }
     public var supportsDataRate: Bool { [.h264, .hevc, .h264Hardware, .hevcHardware, .mjpeg, .mpeg4Part2, .mpeg2, .av1, .vp9].contains(self) }

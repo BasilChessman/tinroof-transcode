@@ -244,3 +244,17 @@ public struct StreamIndex: Sendable {
         return StreamIndex(keyframes: k, breaks: b, duration: idx.duration, packets: idx.packets, corruptPackets: idx.corrupt_packets)
     }
 }
+
+/// Which video codecs this Mac's Media Engine can decode (asked from VideoToolbox, cached).
+public enum HardwareDecoding {
+    nonisolated(unsafe) private static var cache: [String: Bool] = [:]
+    private static let lock = NSLock()
+
+    public static func isSupported(_ codec: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if let known = cache[codec] { return known }
+        let supported = mc_hardware_decode_supported(codec) != 0
+        cache[codec] = supported
+        return supported
+    }
+}

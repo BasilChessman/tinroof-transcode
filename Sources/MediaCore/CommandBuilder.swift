@@ -80,6 +80,18 @@ public enum CommandBuilder {
         return set
     }
 
+    /// `-hwaccel videotoolbox` for a source whose video this Mac decodes in hardware, when the export also
+    /// encodes in hardware: the whole job then runs on the Media Engine (measured: same speed, about a
+    /// third of the CPU time). Software encoders keep CPU decoding, which measured ~10% faster for them.
+    /// ffmpeg copies frames to system memory for the filters, and falls back to software if needed.
+    static func hardwareDecodeFlags(_ req: RenderRequest, _ src: SourceMedia, for settings: ExportSettings) -> [String] {
+        guard req.hardwareDecoding, settings.videoCodec.isHardwareEncoder,
+              let v = req.videoStream(for: src.id) ?? src.info.videoStreams.first?.index,
+              let codec = src.info.streams.first(where: { $0.index == v })?.codec,
+              HardwareDecoding.isSupported(codec) else { return [] }
+        return ["-hwaccel", "videotoolbox"]
+    }
+
     static func trimArgs(_ s: Segment, duration: Double) -> [String] {
         var a: [String] = []
         if s.start > 0.0005 { a += ["-ss", Timecode.ffmpeg(s.start)] }
@@ -578,7 +590,7 @@ public enum CommandBuilder {
         let layout = (audioInfo?.channelLayout.isEmpty == false ? audioInfo!.channelLayout : "stereo")
         for (si, seg) in req.segments.enumerated() {
             guard let ss = req.source(seg.sourceID) else { continue }
-            inputArgs += inputFlags(req) + trimArgs(seg, duration: ss.info.duration) + ["-i", ss.inputSpec]
+            inputArgs += inputFlags(req) + (wantsVideo ? hardwareDecodeFlags(req, ss, for: s) : []) + trimArgs(seg, duration: ss.info.duration) + ["-i", ss.inputSpec]
             let main = inputIndex
             inputIndex += 1
             if wantsVideo {

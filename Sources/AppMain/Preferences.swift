@@ -15,6 +15,7 @@ enum Pref {
     static let queueWhileBatchOpen = "queueWhileBatchOpen"
     static let resolveWebPages = "resolveWebPages"
     static let maxDisplayWidth = "maxDisplayWidth"
+    static let hardwareDecoding = "hardwareDecoding"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
@@ -30,6 +31,7 @@ enum Pref {
             queueWhileBatchOpen: true,
             resolveWebPages: true,
             maxDisplayWidth: 1920,
+            hardwareDecoding: true,
         ])
     }
 
@@ -43,5 +45,6 @@ extension RenderRequest {
         fixDataBreaks = fixDataBreaks || Pref.d.bool(forKey: Pref.fixDataBreaks)
         resampleTo48k = Pref.d.bool(forKey: Pref.resample48k)
         mp2BitrateKbps = Pref.d.integer(forKey: Pref.mp2Bitrate)
+        hardwareDecoding = Pref.d.bool(forKey: Pref.hardwareDecoding)
     }
 }

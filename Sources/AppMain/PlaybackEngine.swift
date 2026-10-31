@@ -44,6 +44,7 @@ final class StreamDecoder {
 
     init?(source: SourceMedia, video: Int?, audio: Int?, outputSize: CGSize?, audioMode: AudioMixMode) {
         let input = (video == nil && source.companionAudio != nil) ? source.companionAudio!.path : source.inputSpec
+        mc_set_hardware_decoding(UserDefaults.standard.bool(forKey: Pref.hardwareDecoding) ? 1 : 0)
         var err = [CChar](repeating: 0, count: 256)
         guard let h = mc_open(input, &err, Int32(err.count)) else { return nil }
         handle = h

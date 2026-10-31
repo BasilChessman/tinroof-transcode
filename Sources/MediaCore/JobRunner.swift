@@ -68,6 +68,7 @@ public final class FFmpegProcess: @unchecked Sendable {
             p.standardOutput = out
             p.standardError = err
             p.standardInput = FileHandle.nullDevice
+            p.qualityOfService = .userInitiated   // keep encodes on the performance cores
             process = p
             lock.unlock()
 

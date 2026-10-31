@@ -126,6 +126,14 @@ int mc_decode_next(MCDecoder *dec, MCFrame *frame);
 /// Last error message.
 const char *mc_last_error(MCDecoder *dec);
 
+/// Use the Media Engine (VideoToolbox) for video decoding where this Mac supports the codec.
+/// Applies to decoders opened afterwards. On by default.
+void mc_set_hardware_decoding(int enabled);
+/// Whether this Mac decodes the codec (an FFmpeg codec name such as "h264") in hardware.
+int mc_hardware_decode_supported(const char *codec_name);
+/// Whether the most recent video frame was decoded by the Media Engine.
+int mc_last_frame_was_hardware(MCDecoder *dec);
+
 /// Index scan: reads every packet of `stream_index` without decoding.
 /// Returns key-frame times and timestamp discontinuities (in seconds from start).
 typedef struct {

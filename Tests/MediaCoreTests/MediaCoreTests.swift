@@ -307,3 +307,151 @@ final class IntegrationTests: XCTestCase {
         XCTAssertGreaterThan(audio, 10)
     }
 }
+
+final class SchedulerTests: XCTestCase {
+    func job(_ codec: VideoCodec?, kind: JobKind? = nil) -> JobSpec {
+        let req = RenderRequest(sources: [], segments: [], videoStream: nil, audioStreams: [])
+        if let kind { return JobSpec(kind: kind, request: req, output: URL(fileURLWithPath: "/tmp/x")) }
+        var s = ExportSettings(kind: .quickTime)
+        s.videoCodec = codec!
+        return JobSpec(kind: .export(s), request: req, output: URL(fileURLWithPath: "/tmp/x"))
+    }
+
+    func testAutomaticRules() {
+        // A heavy encoder that already uses every core runs alone.
+        XCTAssertTrue(JobScheduler.canStart(job(.proRes), alongside: []))
+        XCTAssertFalse(JobScheduler.canStart(job(.proRes), alongside: [job(.proRes)]))
+        XCTAssertFalse(JobScheduler.canStart(job(.h264), alongside: [job(.proRes)]))
+        // VP9 leaves half the CPU idle: two run together, not three.
+        XCTAssertTrue(JobScheduler.canStart(job(.vp9), alongside: [job(.vp9)]))
+        XCTAssertFalse(JobScheduler.canStart(job(.vp9), alongside: [job(.vp9), job(.vp9)]))
+        // Apple hardware encodes: three sessions at once.
+        let hw = job(.h264Hardware)
+        XCTAssertTrue(JobScheduler.canStart(hw, alongside: [hw, hw]))
+        XCTAssertFalse(JobScheduler.canStart(hw, alongside: [hw, hw, hw]))
+        // A hardware encode fits beside a software one.
+        XCTAssertTrue(JobScheduler.canStart(hw, alongside: [job(.h264)]))
+        // Stream copies: two at once.
+        let copy = job(nil, kind: .convert(.ts))
+        XCTAssertTrue(JobScheduler.canStart(copy, alongside: [copy]))
+        XCTAssertFalse(JobScheduler.canStart(copy, alongside: [copy, copy]))
+    }
+}
+
+/// Runs the same mixed batch one at a time and in automatic mode with real ffmpeg.
+final class BatchBenchmarkTests: XCTestCase {
+    @MainActor
+    func testAutomaticBatchIsFasterAndRunsJobsTogether() async throws {
+        try XCTSkipIf(FFmpegLocator.find() == nil, "ffmpeg not installed")
+        let media = IntegrationTests.media.appendingPathComponent("sample_h264.ts")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: media.path), "run scripts/make_test_media.sh")
+        let src = try SourceMedia.open([media])
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("bench-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: out) }
+
+        func jobs() -> [JobSpec] {
+            var list: [JobSpec] = []
+            for (i, codec) in [VideoCodec.vp9, .vp9, .h264Hardware, .h264Hardware, .hevcHardware].enumerated() {
+                var s = ExportSettings(kind: codec == .vp9 ? .matroska : .mpeg4)
+                s.videoCodec = codec
+                s.frameSize = FrameSize(1280, 720)
+                s.audioFormat = codec == .vp9 ? .opus : .aac
+                let req = RenderRequest(sources: [src], segments: [Segment(sourceID: src.id, start: 0, end: 6)],
+                                        videoStream: src.info.videoStreams.first?.index, audioStreams: [src.info.audioStreams.first!.index])
+                list.append(JobSpec(kind: .export(s), request: req, output: out.appendingPathComponent("j\(i)-\(UUID().uuidString).\(s.outputExtension)")))
+            }
+            return list
+        }
+
+        func run(simultaneous: Int) async -> (seconds: Double, peak: Int, completed: Int) {
+            let q = BatchQueue()
+            q.simultaneousTasks = simultaneous
+            for j in jobs() { q.add(j) }
+            let start = Date()
+            var peak = 0
+            q.start()
+            while q.isProcessing {
+                peak = max(peak, q.runningCount)
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            return (Date().timeIntervalSince(start), peak, q.tasks.filter { $0.status == .completed }.count)
+        }
+
+        let serial = await run(simultaneous: 1)
+        let auto = await run(simultaneous: 0)
+        print(String(format: "batch benchmark: one at a time %.1f s, automatic %.1f s (peak %d jobs at once)", serial.seconds, auto.seconds, auto.peak))
+        XCTAssertEqual(serial.completed, 5)
+        XCTAssertEqual(auto.completed, 5)
+        XCTAssertGreaterThan(auto.peak, 1, "automatic mode should run jobs together")
+        XCTAssertLessThan(auto.seconds, serial.seconds, "automatic mode should finish sooner")
+    }
+}
+
+final class HardwareDecodingTests: XCTestCase {
+    static let media = IntegrationTests.media
+
+    func testSupportedCodecsOnThisMac() {
+        let names = ["h264", "hevc", "prores", "vp9", "av1", "mpeg2video", "mpeg4"]
+        let supported = names.filter(HardwareDecoding.isSupported)
+        print("hardware decoding on this Mac: \(supported.joined(separator: ", "))")
+        XCTAssertTrue(HardwareDecoding.isSupported("h264"), "every Apple silicon Mac decodes H.264 in hardware")
+        XCTAssertFalse(HardwareDecoding.isSupported("dvvideo"))
+    }
+
+    /// Decodes 30 frames and returns whether they came from the Media Engine, plus the 30th frame's pixels.
+    func decode(_ file: String, hardware: Bool) throws -> (hw: Bool, frames: Int, pixels: [UInt8]) {
+        mc_set_hardware_decoding(hardware ? 1 : 0)
+        defer { mc_set_hardware_decoding(1) }
+        var err = [CChar](repeating: 0, count: 256)
+        let dec = try XCTUnwrap(mc_open(Self.media.appendingPathComponent(file).path, &err, 256))
+        defer { mc_close(dec) }
+        mc_select_streams(dec, mc_selected_video(dec), -1)
+        mc_set_video_output_size(dec, 320, 180)
+        var f = MCFrame(), frames = 0, hw = false, pixels: [UInt8] = []
+        while frames < 30, mc_decode_next(dec, &f) == 1 {
+            guard f.type == MC_FRAME_VIDEO else { continue }
+            frames += 1
+            hw = mc_last_frame_was_hardware(dec) != 0
+            if frames == 30 { pixels = Array(UnsafeBufferPointer(start: f.pixels, count: Int(f.linesize) * Int(f.height))) }
+        }
+        return (hw, frames, pixels)
+    }
+
+    func testPlayerDecoderUsesMediaEngine() throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: Self.media.appendingPathComponent("sample_h264.ts").path))
+        let hw = try decode("sample_h264.ts", hardware: true)
+        let sw = try decode("sample_h264.ts", hardware: false)
+        XCTAssertEqual(hw.frames, 30); XCTAssertEqual(sw.frames, 30)
+        XCTAssertTrue(hw.hw, "H.264 should decode on the Media Engine")
+        XCTAssertFalse(sw.hw, "with hardware decoding off, frames come from software")
+        // The same picture either way (hardware and software decoders may round differently by a level or two).
+        let diff = zip(hw.pixels, sw.pixels).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+        let mean = Double(diff) / Double(max(1, hw.pixels.count))
+        print(String(format: "hardware vs software decode: mean difference %.2f / 255", mean))
+        XCTAssertLessThan(mean, 3)
+    }
+
+    func testExportUsesHardwareDecodeOnlyForSupportedCodecs() throws {
+        let h264 = try SourceMedia.open([Self.media.appendingPathComponent("sample_h264.ts")])
+        let mpeg2 = try SourceMedia.open([Self.media.appendingPathComponent("sample_pal_ac3.mpg")])
+        // Hardware encodes decode on the Media Engine when the source codec allows it; software encodes don't.
+        for (src, codec, expected) in [(h264, VideoCodec.h264Hardware, true), (h264, VideoCodec.h264, false),
+                                       (mpeg2, VideoCodec.h264Hardware, HardwareDecoding.isSupported("mpeg2video"))] {
+            var s = ExportSettings(kind: .mpeg4); s.frameSize = FrameSize(640, 360); s.videoCodec = codec
+            var req = RenderRequest(sources: [src], segments: [Segment(sourceID: src.id, start: 1, end: 3)],
+                                    videoStream: src.info.videoStreams.first?.index, audioStreams: [src.info.audioStreams.first!.index])
+            req.hardwareDecoding = true
+            let out = FileManager.default.temporaryDirectory.appendingPathComponent("hwdec-\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: out) }
+            let plan = try CommandBuilder.plan(for: JobSpec(kind: .export(s), request: req, output: out))
+            XCTAssertEqual(plan.commands[0].contains("-hwaccel"), expected, "\(src.displayName) \(codec)")
+            guard expected else { continue }
+            let proc = FFmpegProcess(plan: plan, executable: try XCTUnwrap(FFmpegLocator.find()))
+            if case .failed(let m) = proc.run() { XCTFail(m) }
+            let info = try MediaProbe.probe(out.path)
+            XCTAssertEqual(info.duration, 2, accuracy: 0.3)
+            XCTAssertEqual(info.videoStreams.first?.width, 640)
+        }
+    }
+}

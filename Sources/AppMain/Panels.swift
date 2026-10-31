@@ -77,7 +77,16 @@ struct BatchView: View {
             .padding(.horizontal, 10).padding(.top, 8)
             HStack {
                 Toggle("Automatic start", isOn: $queue.autoStart)
-                Stepper("Simultaneous tasks: \(queue.simultaneousTasks)", value: $queue.simultaneousTasks, in: 1...16)
+                Picker("Simultaneous tasks", selection: $queue.simultaneousTasks) {
+                    Text("Automatic").tag(0)
+                    Divider()
+                    ForEach([1, 2, 3, 4, 6, 8], id: \.self) { Text("\($0)").tag($0) }
+                }
+                .fixedSize()
+                .help("Automatic runs as many tasks at once as fit: one heavy software encode, several lighter ones, up to three Apple hardware encodes, and two stream copies.")
+                if queue.runningCount > 0 {
+                    Text("\(queue.runningCount) running").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Text(queue.completionScript.map { "Script: \($0.lastPathComponent)" } ?? "No completion script").font(.caption).foregroundStyle(.secondary)
                 Button("Script…") {
@@ -270,6 +279,15 @@ struct StreamInfoContent: View {
 // MARK: - Preferences
 
 struct PreferencesView: View {
+    /// Codecs this Mac decodes in hardware, for the Performance section.
+    static var hardwareDecodeSummary: String {
+        let names: [(String, String)] = [("h264", "H.264"), ("hevc", "HEVC"), ("prores", "ProRes"), ("vp9", "VP9"), ("av1", "AV1"),
+                                         ("mpeg2video", "MPEG-2"), ("mpeg4", "MPEG-4 Part 2")]
+        let supported = names.filter { HardwareDecoding.isSupported($0.0) }.map(\.1)
+        let list = supported.isEmpty ? "none" : ListFormatter.localizedString(byJoining: supported)
+        return "Used for playback and for exports with an Apple hardware encoder, so the whole job runs on the Media Engine and leaves the processor free. This Mac decodes \(list) in hardware; other formats are decoded by the processor. Turn off if a file shows decoding errors."
+    }
+
     @AppStorage(Pref.fixDataBreaks) var fixDataBreaks = false
     @AppStorage(Pref.preserveGOPs) var preserveGOPs = false
     @AppStorage(Pref.convertOneAudioTrack) var convertOneAudioTrack = false
@@ -280,6 +298,7 @@ struct PreferencesView: View {
     @AppStorage(Pref.queueWhileBatchOpen) var queueWhileBatchOpen = true
     @AppStorage(Pref.resolveWebPages) var resolveWebPages = true
     @AppStorage(Pref.maxDisplayWidth) var maxDisplayWidth = 1920
+    @AppStorage(Pref.hardwareDecoding) var hardwareDecoding = true
     @AppStorage(FFmpegLocator.overrideKey) var ffmpegPath = ""
 
     var body: some View {
@@ -306,6 +325,10 @@ struct PreferencesView: View {
                 Picker("Maximum display resolution", selection: $maxDisplayWidth) {
                     Text("1280 pixels wide").tag(1280); Text("1920 pixels wide").tag(1920); Text("3840 pixels wide").tag(3840)
                 }
+            }
+            Section("Performance") {
+                Toggle("Decode video with the Media Engine", isOn: $hardwareDecoding)
+                Text(Self.hardwareDecodeSummary).font(.caption).foregroundStyle(.secondary)
             }
             Section("Internet") {
                 Toggle("Find the video in web pages with yt-dlp (if installed)", isOn: $resolveWebPages)

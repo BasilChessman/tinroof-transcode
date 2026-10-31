@@ -105,6 +105,8 @@ public struct RenderRequest: Codable, Hashable, Sendable {
     public var watermarkImage: URL?
     /// Time of the frame to export (frame exporter only).
     public var frameTime: Double?
+    /// Decode video on the Media Engine where this Mac supports the codec (exports and frames).
+    public var hardwareDecoding = false
     /// Streams to use for clips other than the primary one (appended clips may number streams differently).
     public var selections: [UUID: StreamSelection] = [:]
 
@@ -147,5 +149,69 @@ public struct JobSpec: Codable, Hashable, Sendable, Identifiable {
         var copy = self
         copy.output = folder.appendingPathComponent(output.lastPathComponent)
         return copy
+    }
+}
+
+/// What a job mostly uses, for scheduling several jobs at once.
+public enum JobResource: Sendable, Equatable {
+    case cpu            // software encoders and decoders
+    case mediaEngine    // Apple's hardware video encoder
+    case disk           // stream copies: limited by disk speed
+    case network
+}
+
+extension JobSpec {
+    /// Main resource and the share of the whole CPU (0…1) one job of this kind keeps busy.
+    /// CPU shares were measured on Apple Silicon (a 1080p export with the bundled ffmpeg).
+    public var load: (resource: JobResource, cpu: Double) {
+        switch kind {
+        case .convert, .saveAs: return (.disk, 0.15)
+        case .checkStream: return (.disk, 0.3)
+        case .download: return (.network, 0.05)
+        case .export(let s):
+            switch s.kind {
+            case .audio: return (.cpu, 0.15)
+            case .frame: return (.cpu, 0.1)
+            default: break
+            }
+            switch s.videoCodec {
+            case .h264Hardware, .hevcHardware, .proResHardware:
+                // Hardware decoding of a supported source leaves almost no CPU work.
+                let hwDecode = request.hardwareDecoding && request.primary.flatMap { p in p.info.videoStreams.first.map { HardwareDecoding.isSupported($0.codec) } } == true
+                return (.mediaEngine, hwDecode ? 0.05 : 0.15)
+            case .proRes: return (.cpu, 0.95)
+            case .dnxhr: return (.cpu, 0.85)
+            case .h264, .hevc, .av1: return (.cpu, 0.75)
+            case .mpeg2, .cineform: return (.cpu, 0.6)
+            case .dv: return (.cpu, 0.35)
+            case .vp9: return (.cpu, 0.45)
+            case .mpeg4Part2, .mjpeg, .hap, .hapAlpha, .hapQ, .ffv1, .utVideo: return (.cpu, 0.5)
+            case .animation, .png, .v210, .uncompressed: return (.cpu, 0.4)
+            }
+        }
+    }
+}
+
+/// Decides how many jobs can run together without overloading the Mac.
+public enum JobScheduler {
+    /// Hardware encoder sessions to run at once.
+    public static let mediaEngineSessions = 3
+    /// Stream copies to run at once (more only makes them compete for the disk).
+    public static let diskJobs = 2
+    /// Upper bound on jobs at once, from the number of cores.
+    public static var maximumJobs: Int { max(2, min(6, ProcessInfo.processInfo.activeProcessorCount / 2)) }
+
+    /// Whether `next` can start alongside `running` in automatic mode.
+    public static func canStart(_ next: JobSpec, alongside running: [JobSpec]) -> Bool {
+        if running.isEmpty { return true }
+        if running.count >= maximumJobs { return false }
+        let load = next.load
+        let cpu = running.reduce(0) { $0 + $1.load.cpu }
+        if cpu + load.cpu > 1.05 { return false }
+        switch load.resource {
+        case .mediaEngine: return running.filter { $0.load.resource == .mediaEngine }.count < mediaEngineSessions
+        case .disk: return running.filter { $0.load.resource == .disk }.count < diskJobs
+        default: return true
+        }
     }
 }

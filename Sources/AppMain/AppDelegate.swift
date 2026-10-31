@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Pref.register()
         NSApp.mainMenu = buildMenu()
         immediate.autoStart = true
-        immediate.simultaneousTasks = 4
+        immediate.simultaneousTasks = 0   // automatic
         for q in [batch, immediate] {
             q.onLog = { [weak self] s in self?.log(s) }
         }

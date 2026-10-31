@@ -197,6 +197,7 @@
     <tr><td>Audio <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd></td><td>AIFF, WAV, AAC, Apple Lossless, MP3, MP2, AC3, FLAC, Opus</td></tr>
     <tr><td>Frame <kbd>⌥</kbd><kbd>⌘</kbd><kbd>F</kbd></td><td>One still as PNG, JPEG or TIFF</td></tr>
   </table>
+  <div class="tip"><b>Software or Apple hardware?</b>H.264, HEVC and ProRes each come in two versions. The plain versions run on the processor's cores and give the best quality for the file size. The <em>(Apple hardware)</em> versions use the video encoder built into Apple silicon: they are much faster, leave the processor free for other work, and are ideal when speed matters more than the smallest possible file. With H.264, HEVC or ProRes source video, TRT also decodes it on that hardware, so the whole export runs there.</div>
   <h3>Settings in the exporter</h3>
   <ul>
     <li><b>Compression</b>: codec, quality or data-rate limit, multipass, B-frames, ProRes and DNxHR profiles.</li>
@@ -219,7 +220,8 @@
     <li><b>While the Batch List is open</b>, Save As, Convert, Export and Download commands are added to it instead of running immediately.</li>
     <li><b>Add Files…</b> (or dropping files onto the list) applies one task to many files.</li>
     <li><b>Go</b> starts the queue. <b>Hold</b> skips a task, <b>Repeat</b> runs it again, and <b>Redirect…</b> changes where files are saved.</li>
-    <li><b>Simultaneous tasks</b> runs several at once; 2 to 4 suits most Macs. <b>Script…</b> runs an AppleScript or app when everything is finished.</li>
+    <li><b>Simultaneous tasks</b> is <b>Automatic</b> by default: TRT runs as many tasks at once as your Mac can take. Heavy encoders such as ProRes run one at a time, lighter ones such as VP9 two at a time, up to three Apple hardware encodes together, and two lossless copies. Choose a number instead to set it yourself.</li>
+    <li><b>Script…</b> runs an AppleScript or app when everything is finished.</li>
   </ul>
 </section>
 
@@ -250,6 +252,7 @@
     <tr><td>Skip buttons interval</td><td>How far the skip buttons jump</td></tr>
     <tr><td>Default surround downmix</td><td>Downmix used when a file opens</td></tr>
     <tr><td>Maximum display resolution</td><td>Lower it if 4K playback stutters</td></tr>
+    <tr><td>Decode video with the Media Engine</td><td>Plays H.264, HEVC and ProRes (and AV1 on newer Macs) using Apple silicon's video hardware, and uses it for exports with an Apple hardware encoder so they barely touch the processor. Turn off if a file shows decoding errors.</td></tr>
   </table>
 </section>
 
