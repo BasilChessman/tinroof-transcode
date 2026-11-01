@@ -4,6 +4,8 @@ A modern macOS video player, editor and converter in the spirit of MPEG Streamcl
 
 The display name comes from `APP_NAME` in `scripts/build_app.sh` (default “TinRoof Transcode”); the app reads it from the bundle at runtime.
 
+**[Download the latest release](https://github.com/BasilChessman/tinroof-transcode/releases/latest)**: a ready-to-run DMG for Apple Silicon Macs on macOS 14 or later, with FFmpeg included.
+
 ## Requirements
 
 - macOS 14 or later, Apple Silicon or Intel
