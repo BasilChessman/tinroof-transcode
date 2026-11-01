@@ -25,6 +25,7 @@
   <a href="#convert">Lossless conversion</a>
   <a href="#export">Exporting</a>
   <a href="#batch">Batch</a>
+  <a href="#watch">Watch folders</a>
   <a href="#windows">Info &amp; Settings</a>
   <a href="#help">Troubleshooting</a>
 </nav>
@@ -223,6 +224,28 @@
     <li><b>Simultaneous tasks</b> is <b>Automatic</b> by default: TRT runs as many tasks at once as your Mac can take. Heavy encoders such as ProRes run one at a time, lighter ones such as VP9 two at a time, up to three Apple hardware encodes together, and two lossless copies. Choose a number instead to set it yourself.</li>
     <li><b>Script…</b> runs an AppleScript or app when everything is finished.</li>
   </ul>
+</section>
+
+<section id="watch">
+  <h2>Watch folders</h2>
+  <p>A watch folder (also called a hot folder) encodes everything you drop into it, with no clicks. It works with local folders and network shares. Open the window with <span class="menu">Window › Watch Folders</span> <kbd>⌥</kbd><kbd>⌘</kbd><kbd>W</kbd>.</p>
+  <figure>
+    <img src="images/watch-folders.png" alt="The Watch Folders window">
+    <figcaption>Three watch folders. Files dropped into “Deliveries” are made into an MP4, a ProRes movie and a WAV file.</figcaption>
+  </figure>
+  <ol>
+    <li>Click <b>+</b>, or drop a folder onto the list, to start watching it.</li>
+    <li>Click <b>Add Output</b> and choose a built-in format or one of your saved Exporter presets. Add more than one output to make several files from each original.</li>
+    <li>Turn on <b>Auto-encode watch folders</b>.</li>
+  </ol>
+  <p>From then on, TRT checks the folders every two seconds. A new file is used once its size has stopped changing, so files that are still copying, even over a slow network, are left until they are complete. Each file becomes one task per output in the Batch List, and these tasks run together like any other batch.</p>
+  <p>The watch folder sorts itself:</p>
+  <ul>
+    <li><b>Output</b> holds the encoded files. With several outputs, each file name ends with the output's name, for example <code>Interview - ProRes 422.mov</code>. Click <b>Choose…</b> under Destination to save them somewhere else.</li>
+    <li><b>Source</b> receives the original once all its outputs have finished.</li>
+    <li><b>Failed</b> receives the original if it can't be read or an output fails. The reason is in the Log window.</li>
+  </ul>
+  <p>Because the original is moved, it is never encoded twice. Files inside subfolders and files that aren't media are ignored. Clear a folder's checkbox to pause it, or turn off <b>Auto-encode watch folders</b> to pause them all. Watching resumes when TRT next opens.</p>
 </section>
 
 <section id="windows">

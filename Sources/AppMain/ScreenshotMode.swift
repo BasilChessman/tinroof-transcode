@@ -104,6 +104,26 @@ enum ScreenshotMode {
             try? await Task.sleep(for: .milliseconds(800))
             capture(window(titled: "Batch List"), to: dir.appendingPathComponent("batch.png"))
 
+            // Watch folders, with example folders (in memory only; never the user's own list).
+            let demo = WatchFolderManager(queue: BatchQueue(), storeDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("trt-demo-\(UUID().uuidString)"))
+            demo.persists = false
+            let builtIn = WatchOutput.builtIn
+            func output(_ name: String) -> WatchOutput { builtIn.first { $0.name == name }! }
+            for (path, outputs) in [("/Volumes/Studio/Watch/Deliveries", ["MP4 H.264", "ProRes 422", "Audio WAV"]),
+                                    ("/Volumes/Studio/Watch/Web", ["WebM / MKV AV1"]),
+                                    ("/Volumes/Studio/Watch/Show Playback", ["Hap"])] {
+                demo.addFolder(URL(fileURLWithPath: path, isDirectory: true))
+                var f = demo.folders.last!
+                f.outputs = outputs.map(output)
+                demo.update(f)
+            }
+            demo.folders[2].enabled = false
+            demo.autoEncode = true
+            app.watchFolders = demo
+            app.showWatchFolders(nil)
+            try? await Task.sleep(for: .milliseconds(900))
+            capture(window(titled: "Watch Folders"), to: dir.appendingPathComponent("watch-folders.png"))
+
             // Settings.
             app.showPreferences(nil)
             try? await Task.sleep(for: .milliseconds(800))
@@ -154,7 +174,7 @@ enum ScreenshotMode {
                 if let web = window(containing: "Guide")?.contentView as? WKWebView {
                     web.window?.setContentSize(NSSize(width: 900, height: 1400))
                     try? await Task.sleep(for: .seconds(1))
-                    for anchor in ["start", "join", "export", "edit"] {
+                    for anchor in ["start", "join", "export", "edit", "watch"] {
                         _ = try? await web.evaluateJavaScript("document.getElementById(\"\(anchor)\").scrollIntoView()")
                         try? await Task.sleep(for: .milliseconds(600))
                         if let img = try? await web.takeSnapshot(configuration: nil), let tiff = img.tiffRepresentation,

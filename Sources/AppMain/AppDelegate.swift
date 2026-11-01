@@ -39,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let immediate = BatchQueue()
     let logStore = LogStore()
     lazy var presets = PresetStore(directory: AppInfo.supportDirectory)
+    lazy var watchFolders: WatchFolderManager = {
+        let m = WatchFolderManager(queue: batch, storeDirectory: AppInfo.supportDirectory)
+        m.prepare = { $0.applyPreferences() }
+        m.onLog = { [weak self] s in self?.log(s) }
+        return m
+    }()
     private(set) var players: [PlayerWindowController] = []
     private weak var activePlayer: PlayerWindowController?
     private var panels: [String: NSWindowController] = [:]
@@ -66,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             PreviewTest.run(samples: s.split(separator: ":").map(String.init)); return
         }
         if let dir = ScreenshotMode.directory { ScreenshotMode.run(in: dir); return }
+        watchFolders.start()
         if !pendingOpen.isEmpty { open(pendingOpen); pendingOpen = [] }
         else if players.isEmpty { showEmptyPlayer() }
     }
@@ -397,6 +404,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showProgress(_ sender: Any?) {
         showPanel("progress", title: "Progress", size: NSSize(width: 560, height: 220)) { ProgressListView(queue: immediate) }
     }
+    @objc func showWatchFolders(_ sender: Any?) {
+        showPanel("watch", title: "Watch Folders", size: NSSize(width: 760, height: 460)) {
+            WatchFoldersView(manager: watchFolders, queue: batch, presets: presets)
+        }
+    }
     @objc func showLog(_ sender: Any?) {
         showPanel("log", title: "Log", size: NSSize(width: 640, height: 320)) { LogView(store: logStore) }
     }
@@ -527,6 +539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mi("Actual Size", #selector(PlayerWindowController.actualSize(_:)), "2"),
             mi("Double Size", #selector(PlayerWindowController.doubleSize(_:)), "3"),
             mi("Full Screen", #selector(PlayerWindowController.playFullScreen(_:)), "0"),
+            sep(),
+            mi("Watch Folders", #selector(showWatchFolders(_:)), "w", [.command, .option], target: self),
             sep(),
             mi("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
         ])

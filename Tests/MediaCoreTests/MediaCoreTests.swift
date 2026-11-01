@@ -455,3 +455,56 @@ final class HardwareDecodingTests: XCTestCase {
         }
     }
 }
+
+/// Drops files into a temporary watch folder and checks they are encoded and filed away.
+final class WatchFolderTests: XCTestCase {
+    @MainActor
+    func testDroppedFilesAreEncodedToEveryOutputAndFiled() async throws {
+        try XCTSkipIf(FFmpegLocator.find() == nil, "ffmpeg not installed")
+        let sample = IntegrationTests.media.appendingPathComponent("sample_portrait.mp4")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: sample.path), "run scripts/make_test_media.sh")
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("watch-\(UUID().uuidString)")
+        let watched = root.appendingPathComponent("Hot")
+        try fm.createDirectory(at: watched, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let queue = BatchQueue()
+        let manager = WatchFolderManager(queue: queue, storeDirectory: root)
+        manager.persists = false
+        manager.addFolder(watched)
+        var folder = manager.folders[0]
+        let builtIn = WatchOutput.builtIn
+        folder.outputs = [builtIn.first { $0.name == "MP4 H.264" }!, builtIn.first { $0.name == "Audio WAV" }!]
+        manager.update(folder)
+        manager.autoEncode = true
+
+        // A file still being written must wait; a junk file must end up in Failed.
+        try fm.copyItem(at: sample, to: watched.appendingPathComponent("clip.mp4"))
+        try Data("not a movie".utf8).write(to: watched.appendingPathComponent("broken.mov"))
+        try Data("ignored".utf8).write(to: watched.appendingPathComponent("notes.txt"))
+        manager.scanNow()
+        XCTAssertTrue(queue.tasks.isEmpty, "files are queued only once their size has settled")
+
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline {
+            manager.scanNow()
+            let done = fm.fileExists(atPath: folder.sourceURL.appendingPathComponent("clip.mp4").path)
+                && fm.fileExists(atPath: folder.failedURL.appendingPathComponent("broken.mov").path)
+            if done { break }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        let outputs = try fm.contentsOfDirectory(atPath: folder.outputURL.path).sorted()
+        XCTAssertEqual(outputs, ["clip - Audio WAV.wav", "clip - MP4 H.264.mp4"])
+        XCTAssertTrue(fm.fileExists(atPath: folder.sourceURL.appendingPathComponent("clip.mp4").path))
+        XCTAssertTrue(fm.fileExists(atPath: folder.failedURL.appendingPathComponent("broken.mov").path))
+        XCTAssertTrue(fm.fileExists(atPath: watched.appendingPathComponent("notes.txt").path), "non-media files are left alone")
+        XCTAssertEqual(queue.tasks.count, 2)
+        let mp4 = try MediaProbe.probe(folder.outputURL.appendingPathComponent("clip - MP4 H.264.mp4").path)
+        XCTAssertEqual(mp4.videoStreams.first?.codec, "h264")
+
+        // Nothing new: another scan queues nothing.
+        manager.scanNow(); manager.scanNow()
+        XCTAssertEqual(queue.tasks.count, 2)
+    }
+}
