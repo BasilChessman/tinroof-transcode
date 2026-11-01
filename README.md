@@ -6,19 +6,21 @@ The display name comes from `APP_NAME` in `scripts/build_app.sh` (default “Tin
 
 **[Download the latest release](https://github.com/BasilChessman/tinroof-transcode/releases/latest)**: a ready-to-run DMG for Apple Silicon Macs on macOS 14 or later, with FFmpeg included.
 
-## Requirements
+## Building from source
+
+The release DMG needs nothing else installed. To build TRT yourself from this repository, you need:
 
 - macOS 14 or later, Apple Silicon or Intel
 - Xcode 16+ or Command Line Tools with Swift 6
 - `brew install ffmpeg pkg-config` (FFmpeg libraries are linked; the `ffmpeg` tool runs conversions)
 - Optional: `brew install yt-dlp` (resolves web-page URLs in Open URL)
 
-## Build, test, run
+### Build, test, run
 
 ```sh
 swift build                       # debug build
 ./scripts/make_test_media.sh      # generates TestMedia/ (MPEG-2/AC3 5.1, H.264 TS, split VOBs)
-swift test                        # 15 tests: model + real ffmpeg conversions for every target and codec
+swift test                        # 23 tests: model + real ffmpeg conversions for every target and codec
 ./scripts/build_app.sh             # build/TinRoof Transcode.app
 ./scripts/make_screenshots.sh       # refresh docs/screenshots and the guide's images after UI changes
 ```
